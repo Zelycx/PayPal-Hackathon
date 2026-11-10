@@ -5,6 +5,8 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
+import android.graphics.Color
+import android.content.res.ColorStateList
 import android.widget.Button
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
@@ -14,6 +16,8 @@ import androidx.core.view.WindowInsetsCompat
 import com.example.paypalhackaton.ChatHeadService
 
 class MainActivity : AppCompatActivity() {
+
+    private lateinit var bubbleButton: Button
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -36,9 +40,11 @@ class MainActivity : AppCompatActivity() {
             insets
         }
 
-        val bubbleButton = findViewById<Button>(R.id.bubble_button)
+        bubbleButton = findViewById(R.id.bubble_button)
 
-        bubbleButton.text = getString(R.string.bubble_mode)
+        bubbleButton.text = getString(R.string.bubble_button)
+
+        updateButton()
 
         bubbleButton.setOnClickListener {
 
@@ -51,15 +57,33 @@ class MainActivity : AppCompatActivity() {
 
                 startActivity(intent)
 
+                Toast.makeText(
+                    this,
+                    "Please allow Display over other apps.",
+                    Toast.LENGTH_LONG
+                ).show()
+
+                return@setOnClickListener
+            }
+
+            if (ChatHeadService.isRunning) {
+
+                stopService(
+                    Intent(this, ChatHeadService::class.java)
+                )
+
+                Toast.makeText(
+                    this,
+                    "Bubble Mode deactivated",
+                    Toast.LENGTH_SHORT
+                ).show()
+
             } else {
 
                 try {
-                    val serviceIntent = Intent(
-                        this,
-                        ChatHeadService::class.java
+                    startService(
+                        Intent(this, ChatHeadService::class.java)
                     )
-
-                    startService(serviceIntent)
 
                     Toast.makeText(
                         this,
@@ -76,6 +100,35 @@ class MainActivity : AppCompatActivity() {
                     ).show()
                 }
             }
+
+            updateButton()
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+
+        if (::bubbleButton.isInitialized) {
+            updateButton()
+        }
+    }
+
+    private fun updateButton() {
+
+        val active = ChatHeadService.isRunning
+
+        bubbleButton.backgroundTintList = ColorStateList.valueOf(
+            Color.parseColor(
+                if (active) "#0070BA" else "#444444"
+            )
+        )
+
+        bubbleButton.setTextColor(Color.WHITE)
+
+        bubbleButton.text = if (active) {
+            "Bubble Mode: ON"
+        } else {
+            "Bubble Mode: OFF"
         }
     }
 }

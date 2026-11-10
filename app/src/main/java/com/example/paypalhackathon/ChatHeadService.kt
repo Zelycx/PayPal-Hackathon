@@ -12,7 +12,6 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.ImageView
-import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.widget.AppCompatImageView
 import com.example.paypalhackathon.R
@@ -20,11 +19,17 @@ import kotlin.math.abs
 
 class ChatHeadService : Service() {
 
+    companion object {
+        @Volatile
+        var isRunning = false
+            private set
+    }
+
     private lateinit var windowManager: WindowManager
     private lateinit var chatHead: AppCompatImageView
 
+    private var chatHeadParams: WindowManager.LayoutParams? = null
     private var chatWindow: View? = null
-    private var chatWindowParams: WindowManager.LayoutParams? = null
 
     private var initialX = 0
     private var initialY = 0
@@ -56,6 +61,7 @@ class ChatHeadService : Service() {
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
 
         createChatHead()
+        isRunning = true
     }
 
     private fun createChatHead() {
@@ -76,6 +82,8 @@ class ChatHeadService : Service() {
             x = 0
             y = dp(200f)
         }
+
+        chatHeadParams = params
 
         @Suppress("ClickableViewAccessibility")
         chatHead.setOnTouchListener { _, event ->
@@ -109,6 +117,7 @@ class ChatHeadService : Service() {
                     if (!moved) {
                         toggleChatWindow()
                     }
+
                     true
                 }
 
@@ -127,8 +136,6 @@ class ChatHeadService : Service() {
             hideChatWindow()
         }
     }
-
-
 
     private fun showChatWindow() {
 
@@ -151,20 +158,23 @@ class ChatHeadService : Service() {
         }
 
         chatWindow = container
-        chatWindowParams = params
 
         windowManager.addView(container, params)
+
+        // Put the chat head above the full-screen floating window.
+        chatHeadParams?.let {
+            windowManager.removeView(chatHead)
+            windowManager.addView(chatHead, it)
+        }
     }
 
-
-
     private fun hideChatWindow() {
+
         chatWindow?.let {
             windowManager.removeView(it)
         }
 
         chatWindow = null
-        chatWindowParams = null
 
         if (::chatHead.isInitialized) {
             chatHead.setImageResource(R.drawable.chat_head_placeholder)
@@ -172,11 +182,14 @@ class ChatHeadService : Service() {
     }
 
     override fun onDestroy() {
+
         hideChatWindow()
 
         if (::chatHead.isInitialized) {
             windowManager.removeView(chatHead)
         }
+
+        isRunning = false
 
         super.onDestroy()
     }
