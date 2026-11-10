@@ -63,7 +63,6 @@ class ChatHeadService : Service() {
         chatHead = AppCompatImageView(this).apply {
             setImageResource(R.drawable.chat_head_placeholder)
             scaleType = ImageView.ScaleType.CENTER_CROP
-            setBackgroundColor(0xFFFF0000.toInt())
         }
 
         val params = WindowManager.LayoutParams(
@@ -122,73 +121,33 @@ class ChatHeadService : Service() {
 
     private fun toggleChatWindow() {
         if (chatWindow == null) {
+            chatHead.setImageResource(R.drawable.chat_foot_placeholder)
             showChatWindow()
         } else {
             hideChatWindow()
         }
     }
 
+
+
     private fun showChatWindow() {
 
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(0xFF202020.toInt())
-            setPadding(dp(16f), dp(12f), dp(16f), dp(16f))
-        }
+        val container = android.view.LayoutInflater.from(this)
+            .inflate(R.layout.float_window, null)
 
-        val header = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-
-        val title = TextView(this).apply {
-            text = getString(R.string.floating_window_title)
-            textSize = 18f
-            setTextColor(0xFFFFFFFF.toInt())
-        }
-
-        val close = TextView(this).apply {
-            text = "✕"
-            textSize = 20f
-            setTextColor(0xFFFFFFFF.toInt())
-            gravity = Gravity.CENTER
-            setPadding(dp(16f), dp(4f), dp(4f), dp(4f))
-            setOnClickListener {
+        container.findViewById<TextView>(R.id.close_window)
+            .setOnClickListener {
                 hideChatWindow()
             }
-        }
-
-        header.addView(
-            title,
-            LinearLayout.LayoutParams(0, dp(40f), 1f)
-        )
-
-        header.addView(
-            close,
-            LinearLayout.LayoutParams(
-                dp(40f),
-                dp(40f)
-            )
-        )
-
-        val message = TextView(this).apply {
-            text = getString(R.string.floating_window_message)
-            textSize = 15f
-            setTextColor(0xFFFFFFFF.toInt())
-            setPadding(0, dp(12f), 0, dp(12f))
-        }
-
-        container.addView(header)
-        container.addView(message)
 
         val params = WindowManager.LayoutParams(
-            dp(300f),
-            dp(220f),
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
             overlayType(),
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
         ).apply {
-            gravity = Gravity.CENTER
+            gravity = Gravity.TOP or Gravity.START
         }
 
         chatWindow = container
@@ -197,6 +156,8 @@ class ChatHeadService : Service() {
         windowManager.addView(container, params)
     }
 
+
+
     private fun hideChatWindow() {
         chatWindow?.let {
             windowManager.removeView(it)
@@ -204,6 +165,10 @@ class ChatHeadService : Service() {
 
         chatWindow = null
         chatWindowParams = null
+
+        if (::chatHead.isInitialized) {
+            chatHead.setImageResource(R.drawable.chat_head_placeholder)
+        }
     }
 
     override fun onDestroy() {
