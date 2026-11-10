@@ -7,6 +7,17 @@
     android:layout_height="match_parent"
     tools:context=".MainActivity">
 
+    <!-- BUBBLE BUTTON -->
+    <Button
+        android:id="@+id/bubble_button"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/bubble_button"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginTop="24dp" />
+
     <!-- AVATAR -->
     <ImageView
         android:id="@+id/avatar_placeholder"
@@ -18,6 +29,7 @@
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent" />
 
+    <!-- SPEECH BUBBLE -->
     <ImageView
         android:id="@+id/speech_bubble_placeholder"
         android:layout_width="279dp"
