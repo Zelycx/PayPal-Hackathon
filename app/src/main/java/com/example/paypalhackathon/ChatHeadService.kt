@@ -19,6 +19,7 @@ import com.example.paypalhackathon.R
 import kotlin.math.abs
 import android.widget.LinearLayout
 import androidx.constraintlayout.widget.ConstraintLayout
+import android.widget.Toast
 
 class ChatHeadService : Service() {
 
@@ -364,6 +365,7 @@ class ChatHeadService : Service() {
     }
 
 
+
     private fun showChatWindow() {
 
         if (chatWindow != null) return
@@ -372,19 +374,35 @@ class ChatHeadService : Service() {
             .from(this)
             .inflate(R.layout.float_window, null) as ConstraintLayout
 
+
+
         // ACTION BUTTONS
         val cart = container.findViewById<ImageView>(R.id.cart)
         val selector = container.findViewById<ImageView>(R.id.selector)
         val wallet = container.findViewById<ImageView>(R.id.wallet)
 
-// SELECTOR SPOTLIGHT OVERLAY
+        // USE DRAWABLE ICONS
+        cart.setImageResource(R.drawable.u_cart)
+        selector.setImageResource(R.drawable.u_selector)
+        wallet.setImageResource(R.drawable.u_wallet)
+
+        // ACTIVE / INACTIVE COLORS
+        val activeColor = Color.rgb(255, 165, 0)
+
+        fun updateIcon(icon: ImageView, active: Boolean) {
+            if (active) {
+                icon.setColorFilter(activeColor)
+            } else {
+                icon.clearColorFilter()
+            }
+        }
+
+        // SELECTOR OVERLAY
         val selectorOverlay = SelectorOverlay(this).apply {
             visibility = View.GONE
             isClickable = true
         }
 
-// Add as the FIRST child so the existing buttons
-// and information boxes remain above the dimming layer.
         container.addView(
             selectorOverlay,
             0,
@@ -394,48 +412,104 @@ class ChatHeadService : Service() {
             )
         )
 
-// SELECTOR BUTTON
-        selector.setOnClickListener {
-            selectorOverlay.visibility =
-                if (selectorOverlay.visibility == View.VISIBLE) {
-                    View.GONE
-                } else {
-                    View.VISIBLE
-                }
-        }
-
         // INFORMATION BOXES
         val cartBox = container.findViewById<LinearLayout>(R.id.cart_box)
         val walletBox = container.findViewById<LinearLayout>(R.id.wallet_box)
 
-        // INFORMATION TEXT
         val cartInfo = container.findViewById<TextView>(R.id.cart_info)
         val walletInfo = container.findViewById<TextView>(R.id.wallet_info)
 
+        // TRACK OPENING ORDER
+        val openBoxes = mutableListOf<View>()
+
+        // POSITION BOXES ACCORDING TO OPENING ORDER
+        fun updateBoxPositions() {
+            container.post {
+                var offset = 0f
+
+                for (box in openBoxes) {
+                    box.translationY = offset
+                    offset += box.height.toFloat()
+                }
+            }
+        }
+
+        // OPEN / CLOSE BOX
+        fun toggleBox(box: View) {
+            if (box.visibility == View.VISIBLE) {
+
+                box.visibility = View.GONE
+                openBoxes.remove(box)
+
+            } else {
+
+                box.visibility = View.VISIBLE
+                openBoxes.remove(box)
+                openBoxes.add(box)
+            }
+
+            updateBoxPositions()
+        }
+
+        // SELECTOR BUTTON
+        selector.setOnClickListener {
+
+            val opening = selectorOverlay.visibility != View.VISIBLE
+
+            selectorOverlay.visibility =
+                if (opening) View.VISIBLE else View.GONE
+
+            updateIcon(selector, opening)
+
+            // CART REQUIRES SELECTOR
+            if (!opening && cartBox.visibility == View.VISIBLE) {
+
+                cartBox.visibility = View.GONE
+                openBoxes.remove(cartBox)
+
+                updateIcon(cart, false)
+                updateBoxPositions()
+            }
+        }
+
         // CART BUTTON
         cart.setOnClickListener {
-            cartBox.visibility =
-                if (cartBox.visibility == View.VISIBLE) {
-                    View.GONE
-                } else {
-                    walletBox.visibility = View.GONE
-                    View.VISIBLE
-                }
+
+            // CHECK SELECTOR FIRST
+            if (selectorOverlay.visibility != View.VISIBLE) {
+
+                Toast.makeText(
+                    this,
+                    "Please open Selector first.",
+                    Toast.LENGTH_SHORT
+                ).show()
+
+                return@setOnClickListener
+            }
+
+            toggleBox(cartBox)
+
+            updateIcon(
+                cart,
+                cartBox.visibility == View.VISIBLE
+            )
         }
 
         // WALLET BUTTON
         wallet.setOnClickListener {
-            walletBox.visibility =
-                if (walletBox.visibility == View.VISIBLE) {
-                    View.GONE
-                } else {
-                    cartBox.visibility = View.GONE
-                    View.VISIBLE
-                }
+
+            toggleBox(walletBox)
+
+            updateIcon(
+                wallet,
+                walletBox.visibility == View.VISIBLE
+            )
         }
 
         // FOOTER AVATAR
-        chatHead.setImageResource(R.drawable.chat_foot_placeholder)
+        chatHead.setImageResource(
+            R.drawable.chat_foot_placeholder
+        )
 
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
@@ -452,7 +526,7 @@ class ChatHeadService : Service() {
 
         windowManager.addView(container, params)
 
-        // Keep bubble above overlay
+        // KEEP BUBBLE ABOVE OVERLAY
         if (chatHeadAdded) {
             windowManager.removeView(chatHead)
             chatHeadAdded = false
@@ -460,6 +534,7 @@ class ChatHeadService : Service() {
             addChatHead()
         }
     }
+
 
     private fun hideChatWindow() {
 
