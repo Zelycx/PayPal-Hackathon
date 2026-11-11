@@ -7,6 +7,10 @@
 /.idea/workspace.xml
 /.idea/navEditor.xml
 /.idea/assetWizardSettings.xml
+/backend/.venv/
+/backend/__pycache__/
+/backend/**/*.pyc
+/backend/.env
 .DS_Store
 /build
 /captures
