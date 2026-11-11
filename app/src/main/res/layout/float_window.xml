@@ -29,18 +29,6 @@
         android:scaleType="fitCenter"
         android:src="@drawable/speech_bubble_placeholder"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintBottom_toBottomOf="parent" />
-
-    <!-- CLOSE BUTTON -->
-    <TextView
-        android:id="@+id/close_window"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
-        android:gravity="center"
-        android:text="✕"
-        android:textColor="#FFFFFF"
-        android:textSize="24sp"
-        app:layout_constraintTop_toTopOf="parent"
-        app:layout_constraintEnd_toEndOf="parent" />
+        app:layout_constraintBottom_toBottomOf="parent"/>
 
 </androidx.constraintlayout.widget.ConstraintLayout>

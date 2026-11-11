@@ -42,9 +42,8 @@ class MainActivity : AppCompatActivity() {
 
         bubbleButton = findViewById(R.id.bubble_button)
 
-        bubbleButton.text = getString(R.string.bubble_button)
-
         updateButton()
+
 
         bubbleButton.setOnClickListener {
 
@@ -78,9 +77,12 @@ class MainActivity : AppCompatActivity() {
                     Toast.LENGTH_SHORT
                 ).show()
 
+                updateButton()
+
             } else {
 
                 try {
+
                     startService(
                         Intent(this, ChatHeadService::class.java)
                     )
@@ -91,6 +93,8 @@ class MainActivity : AppCompatActivity() {
                         Toast.LENGTH_SHORT
                     ).show()
 
+                    finish()
+
                 } catch (e: Exception) {
 
                     Toast.makeText(
@@ -100,9 +104,34 @@ class MainActivity : AppCompatActivity() {
                     ).show()
                 }
             }
-
-            updateButton()
         }
+
+    }
+
+    override fun onStart() {
+        super.onStart()
+
+        ChatHeadService.appInForeground = true
+
+        if (ChatHeadService.isRunning) {
+            startService(
+                Intent(this, ChatHeadService::class.java)
+                    .setAction(ChatHeadService.ACTION_APP_FOREGROUND)
+            )
+        }
+    }
+
+    override fun onStop() {
+        ChatHeadService.appInForeground = false
+
+        if (ChatHeadService.isRunning) {
+            startService(
+                Intent(this, ChatHeadService::class.java)
+                    .setAction(ChatHeadService.ACTION_APP_BACKGROUND)
+            )
+        }
+
+        super.onStop()
     }
 
     override fun onResume() {
@@ -113,13 +142,14 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+
     private fun updateButton() {
 
         val active = ChatHeadService.isRunning
 
         bubbleButton.backgroundTintList = ColorStateList.valueOf(
             Color.parseColor(
-                if (active) "#0070BA" else "#444444"
+                if (active) "#777777" else "#FF9800"
             )
         )
 
@@ -131,4 +161,5 @@ class MainActivity : AppCompatActivity() {
             "Bubble Mode: OFF"
         }
     }
+
 }
