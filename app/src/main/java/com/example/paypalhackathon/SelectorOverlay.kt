@@ -7,25 +7,31 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
+import android.graphics.RectF
 import android.view.MotionEvent
 import android.view.View
-import kotlin.math.max
-import kotlin.math.min
+import kotlin.math.abs
 
 class SelectorOverlay(context: Context) : View(context) {
 
-    private val dimPaint = Paint().apply {
+    var selectorEnabled = false
+        set(value) {
+            field = value
+            invalidate()
+        }
+
+    private val dimPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.argb(150, 0, 0, 0)
     }
 
-    private val clearPaint = Paint().apply {
+    private val clearPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
     }
 
     private val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
         style = Paint.Style.STROKE
-        strokeWidth = dp(2f)
+        strokeWidth = 2f
     }
 
     private val handlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -33,49 +39,32 @@ class SelectorOverlay(context: Context) : View(context) {
         style = Paint.Style.FILL
     }
 
-    private var left = 0f
-    private var top = 0f
-    private var right = 0f
-    private var bottom = 0f
+    private val rect = RectF()
+    private val density = resources.displayMetrics.density
+    private val handleRadius = 9f * density
 
-    private var initialized = false
     private var dragging = false
     private var resizing = false
-
     private var lastX = 0f
     private var lastY = 0f
-
-    private val minWidth = dp(80f)
-    private val minHeight = dp(60f)
-    private val handleRadius = dp(12f)
 
     init {
         setLayerType(View.LAYER_TYPE_SOFTWARE, null)
         setBackgroundColor(Color.TRANSPARENT)
-    }
 
-    private fun dp(value: Float): Float {
-        return value * resources.displayMetrics.density
-    }
+        val width = 220f * density
+        val height = 140f * density
 
-    private fun initializeRectangle() {
-        if (initialized || width == 0 || height == 0) return
-
-        val rectWidth = min(dp(220f), width.toFloat() - dp(32f))
-        val rectHeight = min(dp(140f), height.toFloat() - dp(32f))
-
-        left = (width - rectWidth) / 2f
-        top = (height - rectHeight) / 2f
-        right = left + rectWidth
-        bottom = top + rectHeight
-
-        initialized = true
+        rect.set(
+            80f * density,
+            200f * density,
+            80f * density + width,
+            200f * density + height
+        )
     }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-
-        initializeRectangle()
 
         val save = canvas.saveLayer(
             0f,
@@ -85,61 +74,54 @@ class SelectorOverlay(context: Context) : View(context) {
             null
         )
 
-        // Dim everything.
-        canvas.drawRect(
-            0f, 0f,
-            width.toFloat(), height.toFloat(),
-            dimPaint
-        )
+        // Translucent background, always visible.
+        canvas.drawColor(Color.TRANSPARENT)
+        canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), dimPaint)
 
-        // Clear the selected rectangle.
-        canvas.drawRect(left, top, right, bottom, clearPaint)
+        if (selectorEnabled) {
+            // Reveal the phone screen inside the selection.
+            canvas.drawRect(rect, clearPaint)
 
-        // Rectangle border.
-        canvas.drawRect(left, top, right, bottom, borderPaint)
-
-        // Resize handle.
-        canvas.drawCircle(right, bottom, handleRadius, handlePaint)
+            // Draw selection border and resize handle.
+            canvas.drawRect(rect, borderPaint)
+            canvas.drawCircle(
+                rect.right,
+                rect.bottom,
+                handleRadius,
+                handlePaint
+            )
+        }
 
         canvas.restoreToCount(save)
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        initializeRectangle()
+        if (!selectorEnabled) {
+            return false
+        }
 
         when (event.action) {
-
             MotionEvent.ACTION_DOWN -> {
                 lastX = event.x
                 lastY = event.y
 
-                val nearHandle =
-                    event.x >= right - handleRadius * 2 &&
-                            event.x <= right + handleRadius * 2 &&
-                            event.y >= bottom - handleRadius * 2 &&
-                            event.y <= bottom + handleRadius * 2
+                resizing = abs(event.x - rect.right) < handleRadius * 2 &&
+                        abs(event.y - rect.bottom) < handleRadius * 2
 
-                if (nearHandle) {
-                    resizing = true
-                    dragging = false
-                } else {
+                dragging = !resizing && rect.contains(event.x, event.y)
+
+                if (!dragging && !resizing) {
+                    val halfWidth = rect.width() / 2f
+                    val halfHeight = rect.height() / 2f
+
+                    rect.set(
+                        event.x - halfWidth,
+                        event.y - halfHeight,
+                        event.x + halfWidth,
+                        event.y + halfHeight
+                    )
+                    keepInsideScreen()
                     dragging = true
-                    resizing = false
-
-                    // If touched outside, reposition the rectangle.
-                    if (event.x < left || event.x > right ||
-                        event.y < top || event.y > bottom) {
-
-                        val rectWidth = right - left
-                        val rectHeight = bottom - top
-
-                        left = event.x - rectWidth / 2f
-                        top = event.y - rectHeight / 2f
-                        right = left + rectWidth
-                        bottom = top + rectHeight
-
-                        keepInsideScreen()
-                    }
                 }
 
                 invalidate()
@@ -150,17 +132,14 @@ class SelectorOverlay(context: Context) : View(context) {
                 val dx = event.x - lastX
                 val dy = event.y - lastY
 
-                if (resizing) {
-                    right = max(left + minWidth, right + dx)
-                    bottom = max(top + minHeight, bottom + dy)
-                    keepInsideScreen()
-                } else if (dragging) {
-                    left += dx
-                    right += dx
-                    top += dy
-                    bottom += dy
-                    keepInsideScreen()
+                if (dragging) {
+                    rect.offset(dx, dy)
+                } else if (resizing) {
+                    rect.right = (rect.right + dx).coerceAtLeast(rect.left + 50f * density)
+                    rect.bottom = (rect.bottom + dy).coerceAtLeast(rect.top + 50f * density)
                 }
+
+                keepInsideScreen()
 
                 lastX = event.x
                 lastY = event.y
@@ -173,7 +152,7 @@ class SelectorOverlay(context: Context) : View(context) {
             MotionEvent.ACTION_CANCEL -> {
                 dragging = false
                 resizing = false
-                performClick()
+                invalidate()
                 return true
             }
         }
@@ -182,18 +161,18 @@ class SelectorOverlay(context: Context) : View(context) {
     }
 
     private fun keepInsideScreen() {
-        val rectWidth = right - left
-        val rectHeight = bottom - top
+        val dx = when {
+            rect.left < 0f -> -rect.left
+            rect.right > width -> width - rect.right
+            else -> 0f
+        }
 
-        left = left.coerceIn(0f, max(0f, width - rectWidth))
-        top = top.coerceIn(0f, max(0f, height - rectHeight))
+        val dy = when {
+            rect.top < 0f -> -rect.top
+            rect.bottom > height -> height - rect.bottom
+            else -> 0f
+        }
 
-        right = left + rectWidth
-        bottom = top + rectHeight
-    }
-
-    override fun performClick(): Boolean {
-        super.performClick()
-        return true
+        rect.offset(dx, dy)
     }
 }
