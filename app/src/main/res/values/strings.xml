@@ -7,5 +7,8 @@
     <string name="floating_window_message">Your floating window is active</string>
     <string name="bubble_button">Bubble button</string>
     <string name="bubble_mode">Bubble Mode</string>
+    <string name="cart">Cart</string>
+    <string name="selector">Selector</string>
+    <string name="wallet">Wallet</string>
     <string name="overlay_permission_message">Grant overlay permission, then tap Bubble Mode again.</string>
 </resources>
