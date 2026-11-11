@@ -14,11 +14,22 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.example.paypalhackaton.ChatHeadService
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.IntentFilter
+import androidx.core.content.ContextCompat
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var bubbleButton: Button
 
+    private val serviceStateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == ChatHeadService.ACTION_STATE_CHANGED) {
+                updateButton()
+            }
+        }
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -77,7 +88,8 @@ class MainActivity : AppCompatActivity() {
                     Toast.LENGTH_SHORT
                 ).show()
 
-                updateButton()
+                // Do not call updateButton() here.
+                // The service will notify the activity when it stops.
 
             } else {
 
@@ -111,6 +123,13 @@ class MainActivity : AppCompatActivity() {
     override fun onStart() {
         super.onStart()
 
+        ContextCompat.registerReceiver(
+            this,
+            serviceStateReceiver,
+            IntentFilter(ChatHeadService.ACTION_STATE_CHANGED),
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
+
         ChatHeadService.appInForeground = true
 
         if (ChatHeadService.isRunning) {
@@ -119,6 +138,8 @@ class MainActivity : AppCompatActivity() {
                     .setAction(ChatHeadService.ACTION_APP_FOREGROUND)
             )
         }
+
+        updateButton()
     }
 
     override fun onStop() {
@@ -130,6 +151,8 @@ class MainActivity : AppCompatActivity() {
                     .setAction(ChatHeadService.ACTION_APP_BACKGROUND)
             )
         }
+
+        unregisterReceiver(serviceStateReceiver)
 
         super.onStop()
     }

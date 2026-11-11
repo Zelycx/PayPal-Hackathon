@@ -22,6 +22,9 @@ import kotlin.math.abs
 class ChatHeadService : Service() {
 
     companion object {
+
+        const val ACTION_STATE_CHANGED =
+            "com.example.paypalhackaton.STATE_CHANGED"
         @Volatile
         var isRunning = false
             private set
@@ -444,12 +447,15 @@ class ChatHeadService : Service() {
     }
 
     override fun onDestroy() {
-
         removeDropTarget()
         hideChatWindow()
         removeChatHead()
 
         isRunning = false
+
+        sendBroadcast(
+            Intent(ACTION_STATE_CHANGED).setPackage(packageName)
+        )
 
         super.onDestroy()
     }
