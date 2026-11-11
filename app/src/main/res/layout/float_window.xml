@@ -76,7 +76,7 @@
             app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintStart_toStartOf="parent" />
 
-        <!-- SPEECH BUBBLE x -->
+        <!-- SPEECH BUBBLE xx -->
         <ImageView
             android:id="@+id/speech_bubble_placeholder"
             android:layout_width="279dp"
