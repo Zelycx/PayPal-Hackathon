@@ -1,4 +1,3 @@
-
 package com.example.paypalhackathon
 
 import android.content.Intent
@@ -13,11 +12,12 @@ import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
-import com.example.paypalhackaton.ChatHeadService
+import com.example.paypalhackathon.ChatHeadService
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.IntentFilter
 import androidx.core.content.ContextCompat
+import android.view.View
 
 class MainActivity : AppCompatActivity() {
 

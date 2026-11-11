@@ -8,10 +8,7 @@
     android:layout_height="match_parent"
     tools:context=".MainActivity">
 
-    <!-- MAIN ACTION BAR -->
-
     <!-- BUBBLE BUTTON -->
-
     <Button
         android:id="@+id/bubble_button"
         android:layout_width="wrap_content"
@@ -22,8 +19,8 @@
         app:layout_constraintHorizontal_bias="0.553"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
-    <!-- AVATAR -->
 
+    <!-- BOTTOM BAR -->
     <LinearLayout
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
@@ -31,6 +28,8 @@
         android:orientation="horizontal"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintBottom_toBottomOf="parent">
+
+        <!-- AVATAR -->
         <ImageView
             android:id="@+id/avatar_placeholder"
             android:layout_width="132dp"

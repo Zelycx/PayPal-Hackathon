@@ -1,5 +1,4 @@
-
-package com.example.paypalhackaton
+package com.example.paypalhackathon
 
 import android.app.Service
 import android.content.Intent
@@ -18,13 +17,15 @@ import android.widget.TextView
 import androidx.appcompat.widget.AppCompatImageView
 import com.example.paypalhackathon.R
 import kotlin.math.abs
+import android.widget.LinearLayout
+import androidx.constraintlayout.widget.ConstraintLayout
 
 class ChatHeadService : Service() {
 
     companion object {
 
         const val ACTION_STATE_CHANGED =
-            "com.example.paypalhackaton.STATE_CHANGED"
+            "com.example.paypalhackathon.STATE_CHANGED"
         @Volatile
         var isRunning = false
             private set
@@ -33,10 +34,10 @@ class ChatHeadService : Service() {
         var appInForeground = false
 
         const val ACTION_APP_FOREGROUND =
-            "com.example.paypalhackaton.APP_FOREGROUND"
+            "com.example.paypalhackathon.APP_FOREGROUND"
 
         const val ACTION_APP_BACKGROUND =
-            "com.example.paypalhackaton.APP_BACKGROUND"
+            "com.example.paypalhackathon.APP_BACKGROUND"
     }
 
     private lateinit var windowManager: WindowManager
@@ -362,20 +363,79 @@ class ChatHeadService : Service() {
         }
     }
 
+
     private fun showChatWindow() {
 
         if (chatWindow != null) return
 
         val container = android.view.LayoutInflater
             .from(this)
-            .inflate(R.layout.float_window, null)
+            .inflate(R.layout.float_window, null) as ConstraintLayout
 
-        // The footer avatar closes the overlay.
-        chatHead.setImageResource(R.drawable.chat_foot_placeholder)
+        // ACTION BUTTONS
+        val cart = container.findViewById<ImageView>(R.id.cart)
+        val selector = container.findViewById<ImageView>(R.id.selector)
+        val wallet = container.findViewById<ImageView>(R.id.wallet)
 
-        chatHead.setOnClickListener {
-            hideChatWindow()
+// SELECTOR SPOTLIGHT OVERLAY
+        val selectorOverlay = SelectorOverlay(this).apply {
+            visibility = View.GONE
+            isClickable = true
         }
+
+// Add as the FIRST child so the existing buttons
+// and information boxes remain above the dimming layer.
+        container.addView(
+            selectorOverlay,
+            0,
+            ConstraintLayout.LayoutParams(
+                ConstraintLayout.LayoutParams.MATCH_PARENT,
+                ConstraintLayout.LayoutParams.MATCH_PARENT
+            )
+        )
+
+// SELECTOR BUTTON
+        selector.setOnClickListener {
+            selectorOverlay.visibility =
+                if (selectorOverlay.visibility == View.VISIBLE) {
+                    View.GONE
+                } else {
+                    View.VISIBLE
+                }
+        }
+
+        // INFORMATION BOXES
+        val cartBox = container.findViewById<LinearLayout>(R.id.cart_box)
+        val walletBox = container.findViewById<LinearLayout>(R.id.wallet_box)
+
+        // INFORMATION TEXT
+        val cartInfo = container.findViewById<TextView>(R.id.cart_info)
+        val walletInfo = container.findViewById<TextView>(R.id.wallet_info)
+
+        // CART BUTTON
+        cart.setOnClickListener {
+            cartBox.visibility =
+                if (cartBox.visibility == View.VISIBLE) {
+                    View.GONE
+                } else {
+                    walletBox.visibility = View.GONE
+                    View.VISIBLE
+                }
+        }
+
+        // WALLET BUTTON
+        wallet.setOnClickListener {
+            walletBox.visibility =
+                if (walletBox.visibility == View.VISIBLE) {
+                    View.GONE
+                } else {
+                    cartBox.visibility = View.GONE
+                    View.VISIBLE
+                }
+        }
+
+        // FOOTER AVATAR
+        chatHead.setImageResource(R.drawable.chat_foot_placeholder)
 
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
@@ -390,13 +450,9 @@ class ChatHeadService : Service() {
         chatWindow = container
         chatWindowOpen = true
 
-        chatHead.setImageResource(
-            R.drawable.chat_foot_placeholder
-        )
-
         windowManager.addView(container, params)
 
-        // Keep the bubble above the overlay.
+        // Keep bubble above overlay
         if (chatHeadAdded) {
             windowManager.removeView(chatHead)
             chatHeadAdded = false

@@ -11,4 +11,6 @@
     <string name="selector">Selector</string>
     <string name="wallet">Wallet</string>
     <string name="overlay_permission_message">Grant overlay permission, then tap Bubble Mode again.</string>
+    <string name="cart_info">Cart information is empty</string>
+    <string name="wallet_info">Wallet information is empty</string>
 </resources>
