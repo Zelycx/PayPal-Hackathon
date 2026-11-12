@@ -328,7 +328,7 @@ class BackendApiClient private constructor(context: Context) {
 
     companion object {
         private const val CONNECT_TIMEOUT_MS = 10_000
-        private const val READ_TIMEOUT_MS = 65_000
+        private const val READ_TIMEOUT_MS = 120_000
         private const val MAX_UPLOAD_BYTES = 10 * 1024 * 1024
         private val SUPPORTED_IMAGE_TYPES = setOf("image/jpeg", "image/png", "image/webp")
 

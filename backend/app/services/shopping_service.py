@@ -8,6 +8,7 @@ import io
 import json
 import logging
 import os
+import re
 import warnings
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
@@ -16,6 +17,7 @@ from typing import Protocol
 
 from dotenv import load_dotenv
 from PIL import Image, ImageOps, UnidentifiedImageError
+from pydantic import ValidationError
 
 from app.schemas.shopping import (
     CheckoutBreakdownStatus,
@@ -69,11 +71,192 @@ class ShoppingServiceError(Exception):
         self.status_code = status_code
 
 
+_MONEY_FIELDS = {
+    "unit_price", "original_unit_price", "displayed_line_total", "amount",
+}
+_QUANTITY_FIELDS = {"quantity"}
+_CONFIDENCE_FIELDS = {
+    "name", "item_context", "unit_price", "original_unit_price",
+    "quantity", "line_total", "currency", "confidence",
+}
+_MONEY_TEXT = re.compile(
+    r"^(?P<number>(?:0|[1-9][0-9]*)(?:\.[0-9]+)?|(?:[1-9][0-9]{0,2}(?:,[0-9]{3})+)(?:\.[0-9]+)?)$"
+)
+_CURRENCY_TOKEN = r"(?:US\$|CA\$|AU\$|[$€£¥₹₱₩₫฿₽₺₪₴]|[A-Z]{3})"
+_MONEY_WITH_CURRENCY = re.compile(
+    rf"^(?:(?P<prefix>{_CURRENCY_TOKEN})\s*)?(?P<number>.+?)(?:\s*(?P<suffix>{_CURRENCY_TOKEN}))?$"
+)
+_CURRENCY_SYMBOLS = {"US$", "CA$", "AU$", "$", "€", "£", "¥", "₹", "₱", "₩", "₫", "฿", "₽", "₺", "₪", "₴"}
+
+
+class AIOutputNormalizationError(ValueError):
+    def __init__(self, field: str, message: str, expected: str) -> None:
+        super().__init__(message)
+        self.field = field
+        self.expected = expected
+
+
+def _normalize_money_value(value: object) -> tuple[object, str | None, str | None]:
+    """Return canonical decimal text and any explicitly supplied currency token."""
+    if isinstance(value, bool):
+        return value, None, None
+    if isinstance(value, (int, float, Decimal)):
+        number = value if isinstance(value, Decimal) else Decimal(str(value))
+        if not number.is_finite():
+            return value, None, None
+        return format(number, "f"), None, None
+    if not isinstance(value, str):
+        return value, None, None
+
+    text = value.strip()
+    match = _MONEY_WITH_CURRENCY.fullmatch(text)
+    if match is None:
+        return value, None, None
+    prefix, suffix = match.group("prefix"), match.group("suffix")
+    if prefix and suffix:
+        return value, None, None
+    token = prefix or suffix
+    number_text = match.group("number").strip()
+    number_match = _MONEY_TEXT.fullmatch(number_text)
+    if number_match is None:
+        return value, None, None
+    number_text = number_match.group("number").replace(",", "")
+    currency_kind = None
+    if token:
+        currency_kind = "symbol" if token in _CURRENCY_SYMBOLS else "code"
+    return number_text, token, currency_kind
+
+
+def _parse_shopping_json(raw: str) -> object:
+    """Decode provider JSON, including a single Markdown-fenced JSON object."""
+    candidate = raw.strip()
+    if candidate.startswith("```"):
+        first_newline = candidate.find("\n")
+        if first_newline < 0 or not candidate.endswith("```"):
+            raise json.JSONDecodeError("Unclosed JSON code fence", raw, 0)
+        fence_language = candidate[3:first_newline].strip().lower()
+        if fence_language not in {"", "json"}:
+            raise json.JSONDecodeError("Unsupported code fence", raw, 0)
+        candidate = candidate[first_newline + 1:-3].strip()
+
+    # Decimal keeps numeric amounts exact until their schema normalization.
+    return json.loads(candidate, parse_float=Decimal, parse_int=Decimal)
+
+
+def _normalize_ai_values(
+    value: object,
+    parent_key: str | None = None,
+    path: tuple[str | int, ...] = (),
+) -> object:
+    """Normalize exact numeric amount/quantity JSON values without guessing data."""
+    if isinstance(value, dict):
+        if parent_key == "confidence":
+            for key, item in value.items():
+                if key in _CONFIDENCE_FIELDS and item is not None and (
+                    isinstance(item, bool) or not isinstance(item, (int, float, Decimal))
+                ):
+                    raise ValueError(f"confidence.{key} must be a JSON number or null")
+        normalized: dict[str, object] = {}
+        tokens: list[tuple[str, str, str]] = []
+        for key, item in value.items():
+            if key in _MONEY_FIELDS and item is not None:
+                item, token, token_kind = _normalize_money_value(item)
+                if token is not None and token_kind is not None:
+                    tokens.append((key, token, token_kind))
+                normalized[key] = item
+            else:
+                normalized[key] = _normalize_ai_values(item, key, (*path, key))
+
+        for field, token, kind in tokens:
+            target_field = "currency_symbol" if kind == "symbol" else "currency"
+            current = normalized.get(target_field)
+            if current is not None and current != token:
+                raise AIOutputNormalizationError(
+                    ".".join(str(part) for part in (*path, field)),
+                    "Embedded currency conflicts with the separate currency field.",
+                    "An unambiguous decimal amount with matching separate currency metadata",
+                )
+            normalized[target_field] = token
+        return normalized
+    if isinstance(value, list):
+        return [_normalize_ai_values(item, parent_key, (*path, index)) for index, item in enumerate(value)]
+    if parent_key == "confidence" and value is not None and (
+        isinstance(value, bool) or not isinstance(value, (int, float, Decimal))
+    ):
+        raise ValueError("confidence must be a JSON number or null")
+    if parent_key in _MONEY_FIELDS | _QUANTITY_FIELDS and value is not None:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float, Decimal)):
+            number = value if isinstance(value, Decimal) else Decimal(str(value))
+            if not number.is_finite():
+                return value
+            return format(number, "f")
+    return value
+
+
+def parse_shopping_response(raw: str) -> ShoppingExtraction:
+    """Parse and validate provider output, exposing only safe diagnostics."""
+    try:
+        decoded = _parse_shopping_json(raw)
+    except (json.JSONDecodeError, TypeError, ValueError) as exc:
+        logger.warning("shopping_ai_json_invalid type=%s", type(exc).__name__)
+        raise ShoppingServiceError(
+            "invalid_ai_json", "Vision service returned invalid JSON for the shopping analysis.", 502
+        ) from exc
+    try:
+        decoded = _normalize_ai_values(decoded)
+        return ShoppingExtraction.model_validate(decoded)
+    except (ValidationError, ValueError) as exc:
+        # Do not include Pydantic's input/context: it can contain user-visible screenshot text.
+        if isinstance(exc, AIOutputNormalizationError):
+            safe_errors = [{
+                "field": exc.field,
+                "type": "value_error",
+                "message": str(exc)[:180],
+                "expected": exc.expected,
+            }]
+        elif isinstance(exc, ValidationError):
+            safe_errors = [
+                {
+                    "field": ".".join(str(part) for part in error["loc"]),
+                    "type": error["type"],
+                    "message": error["msg"][:180],
+                    "expected": _expected_for_field(error["loc"]),
+                }
+                for error in exc.errors(include_input=False)
+            ]
+        else:
+            safe_errors = [{
+                "field": "confidence",
+                "type": "invalid_numeric_type",
+                "message": "Confidence must be a JSON number or null.",
+                "expected": "number from 0 to 1, or null",
+            }]
+        logger.warning("shopping_ai_schema_invalid errors=%s", json.dumps(safe_errors))
+        raise ShoppingServiceError(
+            "invalid_ai_schema", "Vision service returned shopping data in an unsupported format.", 502
+        ) from exc
+
+
+def _expected_for_field(location: tuple[object, ...]) -> str:
+    field = str(location[-1]) if location else ""
+    if field in _MONEY_FIELDS:
+        return "plain non-negative decimal amount < 1e18, up to 12 fractional digits; unambiguous grouping only"
+    if field in _QUANTITY_FIELDS:
+        return "positive decimal quantity string"
+    if field == "confidence":
+        return "number from 0 to 1, or null"
+    if field == "currency":
+        return "three-letter ISO currency code, or null"
+    return "value matching the declared ShoppingExtraction schema"
+
+
 @dataclass(frozen=True)
 class ShoppingSettings:
     api_key: str | None
     vision_model: str
-    timeout_seconds: float = 45.0
+    timeout_seconds: float = 90.0
     max_output_tokens: int = 2500
     max_concurrent_requests: int = 3
     structured_output_mode: str = "json_schema"
@@ -94,14 +277,14 @@ class ShoppingSettings:
                 return default
             return value
 
-        raw_timeout = os.getenv("GROQ_TIMEOUT_SECONDS", "45")
+        raw_timeout = os.getenv("GROQ_TIMEOUT_SECONDS", "90")
         try:
             timeout = float(raw_timeout)
-            if not 1.0 <= timeout <= 120.0:
+            if not 1.0 <= timeout <= 180.0:
                 raise ValueError
         except ValueError:
             logger.warning("shopping_configuration_invalid setting=GROQ_TIMEOUT_SECONDS")
-            timeout = 45.0
+            timeout = 90.0
 
         api_key = os.getenv("GROQ_API_KEY", "").strip() or None
         model = os.getenv("GROQ_VISION_MODEL", DEFAULT_VISION_MODEL).strip()
@@ -129,6 +312,64 @@ class VisionProvider(Protocol):
         max_output_tokens: int,
         structured_output_mode: str,
     ) -> str: ...
+
+
+def _image_dimensions(image: bytes) -> tuple[int | None, int | None]:
+    try:
+        with Image.open(io.BytesIO(image)) as decoded:
+            return decoded.width, decoded.height
+    except (UnidentifiedImageError, OSError, ValueError):
+        return None, None
+
+
+def _safe_provider_error(exc: Exception) -> tuple[int | None, str, str]:
+    status = getattr(exc, "status_code", None)
+    category = type(exc).__name__
+    message = "Provider request failed."
+    body = getattr(exc, "body", None)
+    if isinstance(body, dict):
+        error = body.get("error", body)
+        if isinstance(error, dict):
+            category = str(error.get("type") or error.get("code") or category)
+            provider_message = error.get("message")
+            if isinstance(provider_message, str):
+                message = provider_message
+
+    # Provider messages can echo request fragments. Strip image data, credentials,
+    # and long encoded blobs before putting a bounded message in logs.
+    message = re.sub(r"data:image/[\w.+-]+;base64,[A-Za-z0-9+/=_-]+", "[image data redacted]", message, flags=re.I)
+    message = re.sub(r"Bearer\s+\S+", "Bearer [redacted]", message, flags=re.I)
+    message = re.sub(r"gsk_[A-Za-z0-9_-]+", "[credential redacted]", message)
+    message = re.sub(r"[A-Za-z0-9+/=_-]{120,}", "[encoded data redacted]", message)
+    message = " ".join(message.split())[:300]
+    category = re.sub(r"[^A-Za-z0-9_.-]", "_", category)[:80]
+    return status if isinstance(status, int) else None, category, message
+
+
+def _log_provider_failure(
+    exc: Exception,
+    *,
+    model: str,
+    mime_type: str,
+    image: bytes,
+    structured_output_mode: str,
+) -> None:
+    status, category, message = _safe_provider_error(exc)
+    width, height = _image_dimensions(image)
+    logger.warning(
+        "shopping_groq_failure http_status=%s category=%s error_type=%s message=%s "
+        "model=%s image_mime=%s image_width=%s image_height=%s image_bytes=%s structured_output=%s",
+        status,
+        category,
+        type(exc).__name__,
+        message,
+        model,
+        mime_type,
+        width,
+        height,
+        len(image),
+        structured_output_mode,
+    )
 
 
 class GroqVisionProvider:
@@ -199,6 +440,13 @@ class GroqVisionProvider:
         except ShoppingServiceError:
             raise
         except Exception as exc:
+            _log_provider_failure(
+                exc,
+                model=model,
+                mime_type=mime_type,
+                image=image,
+                structured_output_mode=structured_output_mode,
+            )
             raise map_groq_error(exc) from exc
         finally:
             await client.close()
@@ -834,23 +1082,30 @@ class ShoppingService:
                     timeout=self.settings.timeout_seconds,
                 )
             except asyncio.TimeoutError as exc:
+                _log_provider_failure(
+                    exc,
+                    model=self.settings.vision_model,
+                    mime_type=mime_type,
+                    image=processed,
+                    structured_output_mode=self.settings.structured_output_mode,
+                )
                 raise ShoppingServiceError(
                     "provider_timeout", "Vision service did not respond in time.", 504
                 ) from exc
             except ShoppingServiceError:
                 raise
             except Exception as exc:
+                _log_provider_failure(
+                    exc,
+                    model=self.settings.vision_model,
+                    mime_type=mime_type,
+                    image=processed,
+                    structured_output_mode=self.settings.structured_output_mode,
+                )
                 mapped = map_groq_error(exc)
                 raise mapped from exc
 
-        try:
-            decoded = json.loads(raw)
-            extraction = ShoppingExtraction.model_validate(decoded)
-        except (json.JSONDecodeError, TypeError, ValueError) as exc:
-            logger.warning("shopping_ai_response_invalid type=%s", type(exc).__name__)
-            raise ShoppingServiceError(
-                "invalid_ai_response", "Vision service returned an invalid shopping analysis.", 502
-            ) from exc
+        extraction = parse_shopping_response(raw)
         return build_public_response(extraction)
 
 
