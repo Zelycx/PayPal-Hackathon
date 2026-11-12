@@ -1,11 +1,9 @@
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-
-from app.api.session import require_session
 from app.services.paypal_service import test_paypal_connection
 from app.services.paypal_service import get_paypal_balances
-from app.services.paypal_service import get_paypal_balances
 from app.services.paypal_service import get_paypal_transactions
+from fastapi import Depends
 
 
 router = APIRouter(
@@ -32,32 +30,6 @@ async def check_connection(
         raise HTTPException(
             status_code=502,
             detail="Unable to connect to PayPal Sandbox."
-        )
-
-
-@router.get("/balances")
-async def read_paypal_balances(
-    session: dict = Depends(require_session)
-):
-    try:
-        balances = await get_paypal_balances()
-
-        return {
-            "success": True,
-            "environment": "sandbox",
-            "data": balances
-        }
-
-    except RuntimeError as error:
-        raise HTTPException(
-            status_code=502,
-            detail=str(error)
-        )
-
-    except Exception:
-        raise HTTPException(
-            status_code=502,
-            detail="Unable to retrieve PayPal balances."
         )
 
 
@@ -124,3 +96,9 @@ async def read_paypal_transactions(
             status_code=502,
             detail="Unable to retrieve PayPal transactions."
         )
+@router.post("/analyze")
+async def analyze_shopping_image(
+    session: dict = Depends(require_session)
+):
+    session_id = session["session_id"]
+    display_name = session["display_name"]

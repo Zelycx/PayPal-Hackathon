@@ -1,8 +1,11 @@
 
-package com.example.paypalhackathon
+package com.example.paypalhackaton
 
 import android.app.Service
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
@@ -14,52 +17,46 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.ImageView
-import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.widget.AppCompatImageView
-import androidx.constraintlayout.widget.ConstraintLayout
-import kotlin.math.abs
-import android.content.BroadcastReceiver
-import android.content.Context
-import android.content.IntentFilter
 import androidx.core.content.ContextCompat
+import com.example.paypalhackathon.R
+import com.example.paypalhackathon.MainActivity
+import com.example.paypalhackathon.PayPalHackathonApp
+import com.example.paypalhackathon.ScreenReader
+import kotlin.math.abs
 
 class ChatHeadService : Service() {
 
     companion object {
 
         const val ACTION_STATE_CHANGED =
-            "com.example.paypalhackathon.STATE_CHANGED"
+            "com.example.paypalhackaton.STATE_CHANGED"
 
         const val ACTION_ACTIVATE =
-            "com.example.paypalhackathon.ACTIVATE"
-
-        const val ACTION_APP_FOREGROUND =
-            "com.example.paypalhackathon.APP_FOREGROUND"
-
-        const val ACTION_APP_BACKGROUND =
-            "com.example.paypalhackathon.APP_BACKGROUND"
-
+            "com.example.paypalhackaton.ACTIVATE"
         @Volatile
         var isRunning = false
             private set
 
         @Volatile
         var appInForeground = false
+
+        const val ACTION_APP_FOREGROUND =
+            "com.example.paypalhackaton.APP_FOREGROUND"
+
+        const val ACTION_APP_BACKGROUND =
+            "com.example.paypalhackaton.APP_BACKGROUND"
     }
 
     private val appVisibilityReceiver = object : BroadcastReceiver() {
-
         override fun onReceive(context: Context?, intent: Intent?) {
-
             when (intent?.action) {
-
                 ACTION_APP_FOREGROUND -> {
                     appInForeground = true
                     hideAllOverlays()
                 }
-
                 ACTION_APP_BACKGROUND -> {
                     appInForeground = false
                     showAllOverlays()
@@ -76,20 +73,17 @@ class ChatHeadService : Service() {
 
     private var chatHeadAdded = false
     private var chatWindowOpen = false
-
     private var dropTarget: TextView? = null
     private var dropTargetAdded = false
 
     private var initialX = 0
     private var initialY = 0
-
     private var initialTouchX = 0f
     private var initialTouchY = 0f
 
     private var isDragging = false
 
     private fun dp(value: Float): Int {
-
         return TypedValue.applyDimension(
             TypedValue.COMPLEX_UNIT_DIP,
             value,
@@ -99,7 +93,6 @@ class ChatHeadService : Service() {
 
     @Suppress("DEPRECATION")
     private fun overlayType(): Int {
-
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
         } else {
@@ -124,16 +117,18 @@ class ChatHeadService : Service() {
                 addAction(ACTION_APP_FOREGROUND)
                 addAction(ACTION_APP_BACKGROUND)
             },
-            ContextCompat.RECEIVER_NOT_EXPORTED
+            ContextCompat.RECEIVER_NOT_EXPORTED,
         )
-
-        isRunning = true
 
         createChatHead()
 
-        sendBroadcast(
-            Intent(ACTION_STATE_CHANGED).setPackage(packageName)
-        )
+        isRunning = true
+
+        sendBroadcast(Intent(ACTION_STATE_CHANGED).setPackage(packageName))
+
+        if (appInForeground) {
+            hideAllOverlays()
+        }
     }
 
     override fun onStartCommand(
@@ -145,32 +140,17 @@ class ChatHeadService : Service() {
         when (intent?.action) {
 
             ACTION_ACTIVATE -> {
-
-                // IMPORTANT:
-                // Force the bubble to appear immediately.
                 appInForeground = false
-
                 addChatHead()
             }
 
-            ACTION_APP_FOREGROUND -> {
+            ACTION_APP_FOREGROUND -> hideAllOverlays()
 
-                appInForeground = true
-                hideAllOverlays()
-            }
-
-            ACTION_APP_BACKGROUND -> {
-
-                appInForeground = false
-                showAllOverlays()
-            }
+            ACTION_APP_BACKGROUND -> showAllOverlays()
 
             else -> {
-
                 if (appInForeground) {
                     hideAllOverlays()
-                } else {
-                    addChatHead()
                 }
             }
         }
@@ -181,11 +161,7 @@ class ChatHeadService : Service() {
     private fun createChatHead() {
 
         chatHead = AppCompatImageView(this).apply {
-
-            setImageResource(
-                R.drawable.chat_head_placeholder
-            )
-
+            setImageResource(R.drawable.chat_head_placeholder)
             scaleType = ImageView.ScaleType.CENTER_CROP
         }
 
@@ -196,9 +172,7 @@ class ChatHeadService : Service() {
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
         ).apply {
-
             gravity = Gravity.TOP or Gravity.START
-
             x = 0
             y = dp(200f)
         }
@@ -232,9 +206,7 @@ class ChatHeadService : Service() {
                         abs(dx) > dp(8f) ||
                         abs(dy) > dp(8f)
                     ) {
-
                         if (!isDragging) {
-
                             isDragging = true
                             showDropTarget()
                         }
@@ -277,16 +249,12 @@ class ChatHeadService : Service() {
                         removeDropTarget()
 
                         if (droppedOnX) {
-
                             stopSelf()
-
                         } else {
-
                             snapToEdge()
                         }
 
                     } else {
-
                         toggleChatWindow()
                     }
 
@@ -299,7 +267,6 @@ class ChatHeadService : Service() {
 
                     removeDropTarget()
                     snapToEdge()
-
                     isDragging = false
 
                     true
@@ -324,15 +291,10 @@ class ChatHeadService : Service() {
 
     private fun addChatHead() {
 
-        if (!chatHeadAdded) {
+        if (!chatHeadAdded && !appInForeground) {
 
             chatHeadParams?.let {
-
-                windowManager.addView(
-                    chatHead,
-                    it
-                )
-
+                windowManager.addView(chatHead, it)
                 chatHeadAdded = true
             }
         }
@@ -341,9 +303,7 @@ class ChatHeadService : Service() {
     private fun removeChatHead() {
 
         if (chatHeadAdded) {
-
             windowManager.removeView(chatHead)
-
             chatHeadAdded = false
         }
     }
@@ -366,11 +326,7 @@ class ChatHeadService : Service() {
         )
 
         if (chatHeadAdded) {
-
-            windowManager.updateViewLayout(
-                chatHead,
-                params
-            )
+            windowManager.updateViewLayout(chatHead, params)
         }
     }
 
@@ -383,16 +339,11 @@ class ChatHeadService : Service() {
             text = "✕"
             textSize = 28f
             gravity = Gravity.CENTER
-
             setTextColor(Color.WHITE)
 
             background = GradientDrawable().apply {
-
                 shape = GradientDrawable.OVAL
-
-                setColor(
-                    Color.rgb(190, 35, 35)
-                )
+                setColor(Color.rgb(190, 35, 35))
             }
         }
 
@@ -404,18 +355,13 @@ class ChatHeadService : Service() {
                     WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
             PixelFormat.TRANSLUCENT
         ).apply {
-
             gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-
             y = dp(35f)
         }
 
         dropTarget = target
 
-        windowManager.addView(
-            target,
-            params
-        )
+        windowManager.addView(target, params)
 
         dropTargetAdded = true
     }
@@ -426,9 +372,7 @@ class ChatHeadService : Service() {
     ): Boolean {
 
         val centerX = screenWidth() / 2f
-
-        val centerY =
-            screenHeight() - dp(35f) - dp(36f)
+        val centerY = screenHeight() - dp(35f) - dp(36f)
 
         return abs(x - centerX) < dp(65f) &&
                 abs(y - centerY) < dp(65f)
@@ -469,184 +413,24 @@ class ChatHeadService : Service() {
 
         val container = android.view.LayoutInflater
             .from(this)
-            .inflate(
-                R.layout.float_window,
-                null
-            ) as ConstraintLayout
+            .inflate(R.layout.float_window, null)
 
-        // ACTION BUTTONS
-
-        val cart = container.findViewById<ImageView>(R.id.cart)
-        val selector = container.findViewById<ImageView>(R.id.selector)
-        val wallet = container.findViewById<ImageView>(R.id.wallet)
-
-        cart.setImageResource(R.drawable.u_cart)
-        selector.setImageResource(R.drawable.u_selector)
-        wallet.setImageResource(R.drawable.u_wallet)
-
-        // ACTIVE / INACTIVE COLORS
-
-        val activeColor = Color.rgb(255, 165, 0)
-
-        fun updateIcon(icon: ImageView, active: Boolean) {
-
-            if (active) {
-                icon.setColorFilter(activeColor)
-            } else {
-                icon.clearColorFilter()
-            }
+        container.findViewById<View>(R.id.cart_button).setOnClickListener {
+            openMainActivity(MainActivity.ACTION_OPEN_SHOPPING)
+        }
+        container.findViewById<View>(R.id.selector).setOnClickListener {
+            openMainActivity(MainActivity.ACTION_SELECT_SCREENSHOT)
+        }
+        container.findViewById<View>(R.id.wallet).setOnClickListener {
+            openMainActivity(MainActivity.ACTION_OPEN_WALLET)
         }
 
-        // TRANSLUCENT SELECTOR OVERLAY
+        // The footer avatar closes the overlay.
+        chatHead.setImageResource(R.drawable.chat_foot_placeholder)
 
-        val selectorOverlay = SelectorOverlay(this).apply {
-
-            visibility = View.VISIBLE
-
-            selectorEnabled = false
-
-            isClickable = false
-            isFocusable = false
+        chatHead.setOnClickListener {
+            hideChatWindow()
         }
-
-        container.addView(
-            selectorOverlay,
-            0,
-            ConstraintLayout.LayoutParams(
-                ConstraintLayout.LayoutParams.MATCH_PARENT,
-                ConstraintLayout.LayoutParams.MATCH_PARENT
-            )
-        )
-
-        cart.bringToFront()
-        selector.bringToFront()
-        wallet.bringToFront()
-
-        // INFORMATION BOXES
-
-        val cartBox =
-            container.findViewById<LinearLayout>(R.id.cart_box)
-
-        val walletBox =
-            container.findViewById<LinearLayout>(R.id.wallet_box)
-
-        val cartInfo =
-            container.findViewById<TextView>(R.id.cart_info)
-
-        val walletInfo =
-            container.findViewById<TextView>(R.id.wallet_info)
-
-        // TRACK OPENING ORDER
-
-        val openBoxes = mutableListOf<View>()
-
-        // POSITION BOXES
-
-        fun updateBoxPositions() {
-
-            container.post {
-
-                var offset = 0f
-
-                for (box in openBoxes) {
-
-                    box.translationY = offset
-
-                    offset += box.height.toFloat()
-                }
-            }
-        }
-
-        // OPEN / CLOSE BOX
-
-        fun toggleBox(box: View) {
-
-            if (box.visibility == View.VISIBLE) {
-
-                box.visibility = View.GONE
-
-                openBoxes.remove(box)
-
-            } else {
-
-                box.visibility = View.VISIBLE
-
-                openBoxes.remove(box)
-                openBoxes.add(box)
-            }
-
-            updateBoxPositions()
-        }
-
-        // SELECTOR BUTTON
-
-        selector.setOnClickListener {
-
-            selectorOverlay.selectorEnabled =
-                !selectorOverlay.selectorEnabled
-
-            selectorOverlay.isClickable =
-                selectorOverlay.selectorEnabled
-
-            updateIcon(
-                selector,
-                selectorOverlay.selectorEnabled
-            )
-
-            Toast.makeText(
-                this@ChatHeadService,
-                if (selectorOverlay.selectorEnabled)
-                    "Selector activated"
-                else
-                    "Selector deactivated",
-                Toast.LENGTH_SHORT
-            ).show()
-        }
-
-        // CART BUTTON
-
-        cart.isClickable = true
-        cart.isEnabled = true
-
-        cart.setOnClickListener {
-
-            if (selectorOverlay.selectorEnabled) {
-
-                toggleBox(cartBox)
-
-            } else {
-
-                cart.setImageResource(
-                    R.drawable.avatar_placeholder
-                )
-
-                Toast.makeText(
-                    this@ChatHeadService,
-                    "Nothing selected. Please activate the selector first.",
-                    Toast.LENGTH_LONG
-                ).show()
-            }
-        }
-
-        // WALLET BUTTON
-
-        wallet.setOnClickListener {
-
-            toggleBox(walletBox)
-
-            updateIcon(
-                wallet,
-                walletBox.visibility == View.VISIBLE
-            )
-        }
-
-        // FOOTER AVATAR
-
-        chatHead.setImageResource(
-            R.drawable.chat_foot_placeholder
-        )
-
-        // FULL-SCREEN TRANSLUCENT WINDOW
 
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
@@ -655,27 +439,35 @@ class ChatHeadService : Service() {
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
         ).apply {
-
             gravity = Gravity.TOP or Gravity.START
         }
 
         chatWindow = container
         chatWindowOpen = true
 
-        windowManager.addView(
-            container,
-            params
+        chatHead.setImageResource(
+            R.drawable.chat_foot_placeholder
         )
 
-        // KEEP BUBBLE ABOVE OVERLAY
+        windowManager.addView(container, params)
 
+        // Keep the bubble above the overlay.
         if (chatHeadAdded) {
-
             windowManager.removeView(chatHead)
-
             chatHeadAdded = false
 
             addChatHead()
+        }
+    }
+
+    private fun openMainActivity(action: String) {
+        val intent = Intent(this, MainActivity::class.java)
+            .setAction(action)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        try {
+            startActivity(intent)
+        } catch (_: Exception) {
+            Toast.makeText(this, "Could not open the companion screen.", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -690,7 +482,6 @@ class ChatHeadService : Service() {
         chatWindowOpen = false
 
         if (::chatHead.isInitialized) {
-
             chatHead.setImageResource(
                 R.drawable.chat_head_placeholder
             )
@@ -702,19 +493,10 @@ class ChatHeadService : Service() {
         removeDropTarget()
 
         chatWindow?.let {
-
             windowManager.removeView(it)
         }
 
         chatWindow = null
-        chatWindowOpen = false
-
-        if (::chatHead.isInitialized) {
-
-            chatHead.setImageResource(
-                R.drawable.chat_head_placeholder
-            )
-        }
 
         removeChatHead()
     }
@@ -724,14 +506,19 @@ class ChatHeadService : Service() {
         if (appInForeground) return
 
         addChatHead()
+
+        if (chatWindowOpen) {
+            showChatWindow()
+        }
     }
 
     override fun onDestroy() {
-
+        // The close-target path calls stopSelf(), so this also ends capture
+        // when Bubble Mode is closed without MainActivity being open.
+        ScreenReader.stop(this)
+        unregisterReceiver(appVisibilityReceiver)
         removeDropTarget()
-
         hideChatWindow()
-
         removeChatHead()
 
         isRunning = false
@@ -739,8 +526,6 @@ class ChatHeadService : Service() {
         sendBroadcast(
             Intent(ACTION_STATE_CHANGED).setPackage(packageName)
         )
-
-        unregisterReceiver(appVisibilityReceiver)
 
         super.onDestroy()
     }
