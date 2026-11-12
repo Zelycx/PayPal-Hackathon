@@ -1,101 +1,277 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.constraintlayout.widget.ConstraintLayout
-    xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
-    xmlns:tools="http://schemas.android.com/tools"
-    android:id="@+id/main"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/bottom_panel"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    tools:context=".MainActivity">
+    android:background="@drawable/float_panel_background"
+    android:elevation="12dp"
+    android:orientation="vertical"
+    android:padding="10dp">
 
     <LinearLayout
-        android:id="@+id/bottom_panel"
-        android:layout_width="0dp"
-        android:layout_height="120dp"
-        android:layout_marginStart="5dp"
-        android:layout_marginEnd="5dp"
-        android:layout_marginBottom="5dp"
-        android:background="@drawable/float_panel_background"
+        android:layout_width="match_parent"
+        android:layout_height="42dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:accessibilityHeading="true"
+            android:text="PayPal Finance Assistant · Sandbox"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <Button
+            android:id="@+id/panel_minimize"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:contentDescription="Minimize assistant"
+            android:minWidth="0dp"
+            android:padding="0dp"
+            android:text="−"
+            android:textSize="20sp" />
+
+        <Button
+            android:id="@+id/panel_close"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:contentDescription="Close assistant panel"
+            android:minWidth="0dp"
+            android:padding="0dp"
+            android:text="×"
+            android:textSize="20sp" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="60dp"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:paddingStart="5dp"
-        android:paddingEnd="5dp"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent">
+        android:paddingTop="4dp"
+        android:paddingBottom="4dp">
 
         <ImageView
-            android:id="@+id/avatar_placeholder"
-            android:layout_width="86dp"
-            android:layout_height="100dp"
-            android:layout_gravity="center_vertical"
-            android:layout_marginStart="5dp"
-            android:contentDescription="@string/avatar_placeholder"
+            android:id="@+id/selection_preview"
+            android:layout_width="68dp"
+            android:layout_height="52dp"
+            android:contentDescription="Selected screen region preview"
+            android:scaleType="centerCrop"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/panel_text"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:gravity="center_vertical"
+            android:maxLines="2"
+            android:paddingStart="8dp"
+            android:text="Choose an action"
+            android:textColor="#FFFFFF"
+            android:textSize="12sp" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="36dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <ProgressBar
+            android:id="@+id/assistant_progress"
+            style="?android:attr/progressBarStyleSmall"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/assistant_status"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:paddingStart="8dp"
+            android:text="Select a screen region or open PayPal Sandbox."
+            android:textColor="#EEEEEE"
+            android:textSize="12sp" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="44dp"
+        android:orientation="horizontal">
+
+        <EditText
+            android:id="@+id/purchase_budget_amount"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="2"
+            android:hint="Optional limit"
+            android:inputType="numberDecimal"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:singleLine="true"
+            android:textColor="#FFFFFF"
+            android:textColorHint="#AAAAAA"
+            android:textSize="12sp" />
+
+        <EditText
+            android:id="@+id/purchase_budget_currency"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_marginStart="6dp"
+            android:layout_weight="1"
+            android:hint="ISO code"
+            android:inputType="textCapCharacters|textNoSuggestions"
+            android:maxLength="3"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:singleLine="true"
+            android:textColor="#FFFFFF"
+            android:textColorHint="#AAAAAA"
+            android:textSize="12sp" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/analyze_purchase_button"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_weight="1"
+            android:text="Analyze selected region"
+            android:textAllCaps="false"
+            android:textSize="12sp" />
+
+        <Button
+            android:id="@+id/cancel_analysis_button"
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
+            android:layout_marginStart="4dp"
+            android:text="Cancel"
+            android:textAllCaps="false"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:gravity="center"
+        android:orientation="horizontal"
+        android:weightSum="3">
+
+        <ImageView
+            android:id="@+id/cart_button"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:background="?android:attr/selectableItemBackground"
+            android:clickable="true"
+            android:contentDescription="@string/cart"
+            android:focusable="true"
+            android:padding="12dp"
             android:scaleType="fitCenter"
-            android:src="@drawable/avatar_placeholder" />
+            android:src="@drawable/u_cart" />
+
+        <ImageView
+            android:id="@+id/selector"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:background="?android:attr/selectableItemBackground"
+            android:clickable="true"
+            android:contentDescription="@string/selector"
+            android:focusable="true"
+            android:padding="12dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/u_selector" />
+
+        <ImageView
+            android:id="@+id/wallet"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:background="?android:attr/selectableItemBackground"
+            android:clickable="true"
+            android:contentDescription="@string/wallet"
+            android:focusable="true"
+            android:padding="12dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/u_wallet" />
+    </LinearLayout>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fillViewport="true">
 
         <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="100dp"
-            android:layout_marginStart="8dp"
-            android:layout_weight="1"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
             android:orientation="vertical">
 
             <TextView
-                android:id="@+id/panel_text"
+                android:id="@+id/analysis_result"
                 android:layout_width="match_parent"
-                android:layout_height="30dp"
-                android:background="#444444"
-                android:gravity="center_vertical"
-                android:maxLines="1"
-                android:paddingStart="8dp"
-                android:text="Choose an action"
-                android:textColor="#FFFFFF"
+                android:layout_height="wrap_content"
+                android:padding="8dp"
+                android:textColor="#EEEEEE"
+                android:textIsSelectable="true"
                 android:textSize="12sp" />
 
-            <LinearLayout
+            <TextView
+                android:id="@+id/assistant_history"
                 android:layout_width="match_parent"
-                android:layout_height="70dp"
-                android:gravity="center"
-                android:orientation="horizontal"
-                android:weightSum="3">
-
-                <ImageView
-                    android:id="@+id/cart_button"
-                    android:layout_width="0dp"
-                    android:layout_height="match_parent"
-                    android:layout_weight="1"
-                    android:clickable="true"
-                    android:contentDescription="@string/cart"
-                    android:focusable="true"
-                    android:padding="10dp"
-                    android:scaleType="fitCenter"
-                    android:src="@drawable/u_cart" />
-
-                <ImageView
-                    android:id="@+id/selector"
-                    android:layout_width="0dp"
-                    android:layout_height="match_parent"
-                    android:layout_weight="1"
-                    android:clickable="true"
-                    android:contentDescription="@string/selector"
-                    android:focusable="true"
-                    android:padding="10dp"
-                    android:scaleType="fitCenter"
-                    android:src="@drawable/u_selector" />
-
-                <ImageView
-                    android:id="@+id/wallet"
-                    android:layout_width="0dp"
-                    android:layout_height="match_parent"
-                    android:layout_weight="1"
-                    android:clickable="true"
-                    android:contentDescription="@string/wallet"
-                    android:focusable="true"
-                    android:padding="10dp"
-                    android:scaleType="fitCenter"
-                    android:src="@drawable/u_wallet" />
-            </LinearLayout>
+                android:layout_height="wrap_content"
+                android:padding="8dp"
+                android:textColor="#DADADA"
+                android:textSize="12sp" />
         </LinearLayout>
+    </ScrollView>
+
+    <Button
+        android:id="@+id/find_stores_button"
+        android:layout_width="match_parent"
+        android:layout_height="38dp"
+        android:text="Find from trusted stores"
+        android:textAllCaps="false"
+        android:textSize="12sp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <EditText
+            android:id="@+id/chat_input"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:hint="Ask about this purchase"
+            android:imeOptions="actionSend"
+            android:inputType="textCapSentences|textMultiLine"
+            android:maxLength="1200"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:textColor="#FFFFFF"
+            android:textColorHint="#AAAAAA"
+            android:textSize="13sp" />
+
+        <Button
+            android:id="@+id/send_chat_button"
+            android:layout_width="64dp"
+            android:layout_height="42dp"
+            android:layout_marginStart="6dp"
+            android:minWidth="0dp"
+            android:text="Send"
+            android:textAllCaps="false" />
     </LinearLayout>
-</androidx.constraintlayout.widget.ConstraintLayout>
+</LinearLayout>

@@ -20,6 +20,8 @@ The guest token is unrelated to PayPal OAuth. Do not send PayPal credentials or 
 
 Use `multipart/form-data` with the required file field `image`.
 
+The request remains backward compatible with clients that send only `image`. To request Purchase Intelligence, also send `include_purchase_evaluation=true`. A one-time spending limit is optional; if provided, send both `budget_amount` (a non-negative decimal string) and `budget_currency` (a three-letter ISO currency code). The budget applies only to this analysis. Omit both budget fields when no limit was supplied.
+
 Supported content: JPEG, PNG, or WebP. Maximum image size: 10 MB. The backend verifies decoded image format, rejects animated and malformed images, applies orientation, removes metadata through re-encoding, and rejects images over 8,000 pixels on either side or 40 megapixels total. It re-encodes at high quality and does not downscale text. An encoded result over 10 MB is rejected.
 
 ## Successful response
@@ -84,6 +86,16 @@ All money and quantity values are decimal strings. `items_subtotal` is calculate
 }
 ```
 
+## Optional Purchase Intelligence
+
+When `include_purchase_evaluation=true`, the same `/shopping/analyze` response includes a `purchase_evaluation` object. It reuses the extracted shopping response and the existing PayPal Sandbox balance service; it does not upload or analyze another image. Older requests continue to receive the shopping response with `purchase_evaluation: null`.
+
+The backend uses Python `Decimal` for remaining-balance and remaining-budget calculations. A complete checkout total is preferred. For product or cart screens, an identified item subtotal may be returned as an incomplete estimate with a warning that taxes, delivery, or other checkout charges may be missing. Unknown prices and currencies are never treated as zero. Multiple currencies are not summed or converted. No exchange rate is applied.
+
+`status` may be `WITHIN_BUDGET_AND_BALANCE`, `WITHIN_BUDGET`, `WITHIN_BALANCE`, `OVER_BUDGET`, `INSUFFICIENT_BALANCE`, `BOTH_LIMITS_EXCEEDED`, `NEEDS_REVIEW`, `BALANCE_UNAVAILABLE`, or `CURRENCY_MISMATCH`. The object includes each returned `available_balance`, freshness timestamps, individual comparison results, and remaining amounts only when they can be computed. PayPal data is Sandbox reporting data; it is advisory and does not execute payments. Stale or unavailable balance data requires review.
+
+The optional `ai_opinion` is generated after the deterministic evaluation with the backend's configured Groq model. It receives extracted product details and relevant evaluation values, not transaction history or the screenshot. If Groq is unavailable, the deterministic fields remain in the response and `ai_opinion` is null.
+
 `item_context` can be `cart_item`, `selected_product`, `listing_product`, `recommendation`, or `unknown`. Listing and recommendation products are returned for context but excluded from purchase subtotals. Unknown quantity or currency prevents line-total calculation. A bare `$` is preserved as a symbol and does not imply USD. Confidence scores describe rough visual certainty; they are not calibrated probabilities.
 
 `line_total` contains only a Python-calculated value. `displayed_line_total` preserves the value visible in the screenshot. If both exist and differ, the response includes a warning and sets `requires_review`.
@@ -91,6 +103,14 @@ All money and quantity values are decimal strings. `items_subtotal` is calculate
 `shipping_total`, `tax_total`, and `other_charges_total` contain identified component amounts. Discounts already reflected in current item prices are not subtracted again. `discount_total` is the additional amount eligible to subtract from current item prices when the screenshot clearly establishes its scope.
 
 A valid non-shopping screenshot returns HTTP 200, `screen_type: "unknown"`, an empty item list, and a warning.
+
+## Contextual assistant chat
+
+POST /shopping/chat accepts the guest Bearer token, one question, up to eight prior chat turns, and a validated summary of extracted product fields and the current purchase evaluation. It sends only those fields and the conversation to the configured Groq model. The screenshot, PayPal credentials, transaction history, and unrelated Sandbox currencies are not sent. The model is instructed to treat supplied text as untrusted, avoid financial arithmetic, and state uncertainty. The endpoint returns an answer; Groq failures are returned as HTTP errors rather than fabricated responses. The same backend GROQ_API_KEY and configured model used by Shopping AI are required.
+
+## Product discovery status
+
+The repository does not currently have a real product-search provider configured. The floating assistant reports this state and returns no listings, seller ratings, trust claims, or merchant links. eBay Browse was evaluated as a possible source: it supports keyword and image searches, but eBay documents its Buy APIs as limited-release for production partners and requires production application approval. The API's listed marketplaces include Singapore and Hong Kong but not the Philippines; image search is limited to the US, Germany, UK, and Australia. No eBay app keys or approved production access are present in this project, so Sandbox fixtures cannot be presented as live offers. See https://developer.ebay.com/develop/api/buy/browse_api, https://developer.ebay.com/api-docs/buy/buy-requirements.html, and https://developer.ebay.com/api-docs/buy/ref-marketplace-supported.html.
 
 ## Errors
 
@@ -123,9 +143,9 @@ Screenshots are sent to the selected cloud provider for analysis. Avoid capturin
 - Android emulator: `http://10.0.2.2:8000`
 - Physical device: use the computer's reachable local network IP and allow the backend port through the local firewall.
 
-Run Uvicorn from `backend/` with `python -m uvicorn app.main:app --host 0.0.0.0 --port 8000` for emulator/device access. Add Android's normal `INTERNET` permission and implement capture/permission/selection/cropping in the Android app; those features are outside this backend change.
+Run Uvicorn from `backend/` with `python -m uvicorn app.main:app --host 0.0.0.0 --port 8000` for emulator/device access. The root Android app uses its existing ScreenReader crop, keeps the confirmed bitmap in memory, and requires a separate Analyze Purchase tap before upload. Android MediaProjection consent remains controlled by the device user.
 
-## Kotlin OkHttp example
+## Kotlin OkHttp example (alternative client)
 
 The Android side supplies a cropped image as a `ByteArray` and the guest session token. This example contains no provider credentials:
 

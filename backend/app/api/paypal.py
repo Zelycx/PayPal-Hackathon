@@ -1,13 +1,16 @@
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+
 from app.api.session import require_session
-from app.services.paypal_service import test_paypal_connection
-from app.services.paypal_service import get_paypal_balances
-from app.services.paypal_service import get_paypal_transactions
 from app.schemas.paypal_analysis import PayPalAnalysisResponse
 from app.services.paypal_analysis_service import (
     PayPalAnalysisError,
     analyze_paypal_data,
+)
+from app.services.paypal_service import (
+    get_paypal_balances,
+    get_paypal_transactions,
+    test_paypal_connection,
 )
 
 
@@ -101,6 +104,8 @@ async def read_paypal_transactions(
             status_code=502,
             detail="Unable to retrieve PayPal transactions."
         )
+
+
 @router.post("/analyze", response_model=PayPalAnalysisResponse)
 async def analyze_paypal_transactions(
     session: dict = Depends(require_session),

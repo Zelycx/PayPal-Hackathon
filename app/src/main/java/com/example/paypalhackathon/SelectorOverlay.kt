@@ -1,4 +1,3 @@
-
 package com.example.paypalhackathon
 
 import android.content.Context
@@ -11,168 +10,212 @@ import android.graphics.RectF
 import android.view.MotionEvent
 import android.view.View
 import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
 
+/** Full-screen dimmer and draggable/resizable screen-region marquee. */
 class SelectorOverlay(context: Context) : View(context) {
 
-    var selectorEnabled = false
-        set(value) {
-            field = value
-            invalidate()
-        }
+    data class ResizeEdges(
+        val left: Boolean = false,
+        val top: Boolean = false,
+        val right: Boolean = false,
+        val bottom: Boolean = false
+    )
+
+    private enum class Gesture { NONE, CREATE, MOVE, RESIZE }
 
     private val dimPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.argb(150, 0, 0, 0)
+        color = Color.argb(160, 0, 0, 0)
     }
-
     private val clearPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
     }
-
     private val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
         style = Paint.Style.STROKE
-        strokeWidth = 2f
+        strokeWidth = 2f * resources.displayMetrics.density
     }
-
     private val handlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
         style = Paint.Style.FILL
     }
+    private val selectionPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(36, 255, 255, 255)
+    }
 
-    private val rect = RectF()
     private val density = resources.displayMetrics.density
-    private val handleRadius = 9f * density
+    private val handleRadius = 5f * density
+    private val handleTouchRadius = 22f * density
+    private val minimumSize = 48f * density
 
-    private var dragging = false
-    private var resizing = false
-    private var lastX = 0f
-    private var lastY = 0f
+    private var selection: RectF? = null
+    private var gesture = Gesture.NONE
+    private var resizeEdges = ResizeEdges()
+    private var downX = 0f
+    private var downY = 0f
+
+    /** Called when a gesture or reset changes whether a valid region exists. */
+    var onSelectionValidityChanged: ((Boolean) -> Unit)? = null
 
     init {
         setLayerType(View.LAYER_TYPE_SOFTWARE, null)
         setBackgroundColor(Color.TRANSPARENT)
+        isClickable = true
+    }
 
-        val width = 220f * density
-        val height = 140f * density
+    fun selectedRect(): RectF? {
+        val rect = selection ?: return null
+        if (!isSelectionValid(rect)) return null
+        return RectF(rect)
+    }
 
-        rect.set(
-            80f * density,
-            200f * density,
-            80f * density + width,
-            200f * density + height
-        )
+    fun resetSelection() {
+        selection = null
+        gesture = Gesture.NONE
+        invalidate()
+        onSelectionValidityChanged?.invoke(false)
     }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-
-        val save = canvas.saveLayer(
-            0f,
-            0f,
-            width.toFloat(),
-            height.toFloat(),
-            null
-        )
-
-        // Translucent background, always visible.
-        canvas.drawColor(Color.TRANSPARENT)
+        val save = canvas.saveLayer(0f, 0f, width.toFloat(), height.toFloat(), null)
         canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), dimPaint)
 
-        if (selectorEnabled) {
-            // Reveal the phone screen inside the selection.
+        selection?.takeIf(::isSelectionValidForDisplay)?.let { rect ->
             canvas.drawRect(rect, clearPaint)
-
-            // Draw selection border and resize handle.
+            canvas.drawRect(rect, selectionPaint)
             canvas.drawRect(rect, borderPaint)
-            canvas.drawCircle(
-                rect.right,
-                rect.bottom,
-                handleRadius,
-                handlePaint
-            )
+            handleCenters(rect).forEach { (x, y) ->
+                canvas.drawCircle(x, y, handleRadius, handlePaint)
+            }
         }
 
         canvas.restoreToCount(save)
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (!selectorEnabled) {
-            return false
-        }
+        if (width <= 0 || height <= 0) return true
 
-        when (event.action) {
+        when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                lastX = event.x
-                lastY = event.y
+                downX = event.x.coerceIn(0f, width.toFloat())
+                downY = event.y.coerceIn(0f, height.toFloat())
+                val rect = selection
+                val hitEdges = rect?.let { hitResizeHandle(it, downX, downY) }
 
-                resizing = abs(event.x - rect.right) < handleRadius * 2 &&
-                        abs(event.y - rect.bottom) < handleRadius * 2
-
-                dragging = !resizing && rect.contains(event.x, event.y)
-
-                if (!dragging && !resizing) {
-                    val halfWidth = rect.width() / 2f
-                    val halfHeight = rect.height() / 2f
-
-                    rect.set(
-                        event.x - halfWidth,
-                        event.y - halfHeight,
-                        event.x + halfWidth,
-                        event.y + halfHeight
-                    )
-                    keepInsideScreen()
-                    dragging = true
+                if (hitEdges != null) {
+                    gesture = Gesture.RESIZE
+                    resizeEdges = hitEdges
+                } else if (rect != null && rect.contains(downX, downY)) {
+                    gesture = Gesture.MOVE
+                } else {
+                    gesture = Gesture.CREATE
+                    resizeEdges = ResizeEdges()
+                    selection = RectF(downX, downY, downX, downY)
                 }
-
                 invalidate()
                 return true
             }
 
             MotionEvent.ACTION_MOVE -> {
-                val dx = event.x - lastX
-                val dy = event.y - lastY
-
-                if (dragging) {
-                    rect.offset(dx, dy)
-                } else if (resizing) {
-                    rect.right = (rect.right + dx).coerceAtLeast(rect.left + 50f * density)
-                    rect.bottom = (rect.bottom + dy).coerceAtLeast(rect.top + 50f * density)
+                val x = event.x.coerceIn(0f, width.toFloat())
+                val y = event.y.coerceIn(0f, height.toFloat())
+                when (gesture) {
+                    Gesture.CREATE -> selection = RectF(
+                        min(downX, x), min(downY, y), max(downX, x), max(downY, y)
+                    )
+                    Gesture.MOVE -> moveSelection(x - downX, y - downY)
+                    Gesture.RESIZE -> resizeSelection(x, y)
+                    Gesture.NONE -> Unit
                 }
-
-                keepInsideScreen()
-
-                lastX = event.x
-                lastY = event.y
-
                 invalidate()
+                onSelectionValidityChanged?.invoke(selectedRect() != null)
                 return true
             }
 
-            MotionEvent.ACTION_UP,
-            MotionEvent.ACTION_CANCEL -> {
-                dragging = false
-                resizing = false
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                gesture = Gesture.NONE
                 invalidate()
+                onSelectionValidityChanged?.invoke(selectedRect() != null)
                 return true
             }
         }
-
         return true
     }
 
-    private fun keepInsideScreen() {
-        val dx = when {
-            rect.left < 0f -> -rect.left
-            rect.right > width -> width - rect.right
-            else -> 0f
-        }
-
-        val dy = when {
-            rect.top < 0f -> -rect.top
-            rect.bottom > height -> height - rect.bottom
-            else -> 0f
-        }
-
-        rect.offset(dx, dy)
+    private fun moveSelection(dx: Float, dy: Float) {
+        val rect = selection ?: return
+        val oldLeft = rect.left
+        val oldTop = rect.top
+        val maxLeft = (width - rect.width()).coerceAtLeast(0f)
+        val maxTop = (height - rect.height()).coerceAtLeast(0f)
+        val left = (rect.left + dx).coerceIn(0f, maxLeft)
+        val top = (rect.top + dy).coerceIn(0f, maxTop)
+        rect.offsetTo(left, top)
+        downX += left - oldLeft
+        downY += top - oldTop
     }
+
+    private fun resizeSelection(x: Float, y: Float) {
+        val rect = selection ?: return
+        val minWidth = min(minimumSize, width.toFloat())
+        val minHeight = min(minimumSize, height.toFloat())
+
+        if (resizeEdges.left) {
+            rect.left = x.coerceIn(0f, (rect.right - minWidth).coerceAtLeast(0f))
+        }
+        if (resizeEdges.right) {
+            rect.right = x.coerceIn((rect.left + minWidth).coerceAtMost(width.toFloat()), width.toFloat())
+        }
+        if (resizeEdges.top) {
+            rect.top = y.coerceIn(0f, (rect.bottom - minHeight).coerceAtLeast(0f))
+        }
+        if (resizeEdges.bottom) {
+            rect.bottom = y.coerceIn((rect.top + minHeight).coerceAtMost(height.toFloat()), height.toFloat())
+        }
+    }
+
+    private fun hitResizeHandle(rect: RectF, x: Float, y: Float): ResizeEdges? {
+        return handleCenters(rect).firstOrNull { (centerX, centerY) ->
+            abs(x - centerX) <= handleTouchRadius && abs(y - centerY) <= handleTouchRadius
+        }?.let { (centerX, centerY) ->
+            val horizontal = when {
+                centerX == rect.left -> ResizeEdges(left = true)
+                centerX == rect.right -> ResizeEdges(right = true)
+                else -> ResizeEdges()
+            }
+            val vertical = when {
+                centerY == rect.top -> ResizeEdges(top = true)
+                centerY == rect.bottom -> ResizeEdges(bottom = true)
+                else -> ResizeEdges()
+            }
+            ResizeEdges(
+                left = horizontal.left,
+                top = vertical.top,
+                right = horizontal.right,
+                bottom = vertical.bottom
+            )
+        }
+    }
+
+    private fun handleCenters(rect: RectF): List<Pair<Float, Float>> = listOf(
+        rect.left to rect.top,
+        rect.centerX() to rect.top,
+        rect.right to rect.top,
+        rect.right to rect.centerY(),
+        rect.right to rect.bottom,
+        rect.centerX() to rect.bottom,
+        rect.left to rect.bottom,
+        rect.left to rect.centerY()
+    )
+
+    private fun isSelectionValidForDisplay(rect: RectF): Boolean =
+        rect.width() > 0f && rect.height() > 0f
+
+    private fun isSelectionValid(rect: RectF): Boolean =
+        isSelectionValidForDisplay(rect) &&
+                rect.width() >= minimumSize && rect.height() >= minimumSize &&
+                rect.left >= 0f && rect.top >= 0f &&
+                rect.right <= width.toFloat() && rect.bottom <= height.toFloat()
 }

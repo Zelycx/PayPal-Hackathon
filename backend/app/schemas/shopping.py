@@ -10,9 +10,9 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
 
-MONEY_PATTERN = r"^(?:0|[1-9][0-9]{0,29})(?:\.[0-9]{1,12})?$"
+MONEY_PATTERN = r"^(?:0|[1-9][0-9]{0,29})(?:\.[0-9]{1,18})?$"
 QUANTITY_PATTERN = r"^(?:0|[1-9][0-9]{0,11})(?:\.[0-9]{1,6})?$"
-MoneyString = Annotated[str, StringConstraints(pattern=MONEY_PATTERN, max_length=43)]
+MoneyString = Annotated[str, StringConstraints(pattern=MONEY_PATTERN, max_length=49)]
 QuantityString = Annotated[str, StringConstraints(pattern=QUANTITY_PATTERN, max_length=24)]
 CurrencyCode = Annotated[str, StringConstraints(pattern=r"^[A-Z]{3}$", min_length=3, max_length=3)]
 ConfidenceValue = Annotated[float, Field(ge=0, le=1, allow_inf_nan=False)]
@@ -73,6 +73,10 @@ class CheckoutBreakdownStatus(str, Enum):
 
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+SIGNED_MONEY_PATTERN = r"^-?(?:0|[1-9][0-9]{0,29})(?:\.[0-9]{1,18})?$"
+SignedMoneyString = Annotated[str, StringConstraints(pattern=SIGNED_MONEY_PATTERN, max_length=50)]
 
 
 def normalize_decimal_string(
@@ -311,6 +315,147 @@ class CurrencyTotals(StrictModel):
         return None if value is None else normalize_decimal_string(value)
 
 
+class PurchaseBudget(StrictModel):
+    """An optional, one-time spending limit supplied for this analysis."""
+
+    amount: MoneyString
+    currency: CurrencyCode
+
+    @field_validator("amount", mode="before")
+    @classmethod
+    def validate_amount(cls, value: object) -> object:
+        return normalize_decimal_string(value, maximum=Decimal("1e30"))
+
+
+class SandboxBalance(StrictModel):
+    currency: CurrencyCode
+    available_amount: SignedMoneyString | None = None
+
+    @field_validator("available_amount", mode="before")
+    @classmethod
+    def validate_available_amount(cls, value: object) -> object:
+        if value is None:
+            return None
+        if not isinstance(value, str) or not re.fullmatch(SIGNED_MONEY_PATTERN, value):
+            raise ValueError("Balance must be a decimal string.")
+        amount = Decimal(value)
+        if not amount.is_finite() or abs(amount) >= Decimal("1e30"):
+            raise ValueError("Balance must be finite and in the supported range.")
+        return format(amount, "f")
+
+
+class PurchaseStatus(str, Enum):
+    within_budget_and_balance = "WITHIN_BUDGET_AND_BALANCE"
+    within_budget = "WITHIN_BUDGET"
+    within_balance = "WITHIN_BALANCE"
+    over_budget = "OVER_BUDGET"
+    insufficient_balance = "INSUFFICIENT_BALANCE"
+    both_limits_exceeded = "BOTH_LIMITS_EXCEEDED"
+    needs_review = "NEEDS_REVIEW"
+    balance_unavailable = "BALANCE_UNAVAILABLE"
+    currency_mismatch = "CURRENCY_MISMATCH"
+
+
+class LimitComparison(str, Enum):
+    within_limit = "WITHIN_LIMIT"
+    exceeded = "EXCEEDED"
+    not_provided = "NOT_PROVIDED"
+    unavailable = "UNAVAILABLE"
+    currency_mismatch = "CURRENCY_MISMATCH"
+    needs_review = "NEEDS_REVIEW"
+
+
+class PurchaseEvaluation(StrictModel):
+    """Deterministic comparison plus an optional, non-authoritative explanation."""
+
+    status: PurchaseStatus
+    total_amount: MoneyString | None = None
+    currency: CurrencyCode | None = None
+    total_source: Literal["payable_total", "visible_checkout_total", "items_subtotal"] | None = None
+    total_complete: bool
+    sandbox_environment: Literal["sandbox"] = "sandbox"
+    sandbox_balances: list[SandboxBalance] = Field(default_factory=list, max_length=20)
+    balance_available: bool
+    balance_freshness: Literal["fresh", "stale", "unknown", "unavailable"]
+    balance_as_of_time: str | None = None
+    balance_last_refresh_time: str | None = None
+    matched_balance_amount: SignedMoneyString | None = None
+    matched_balance_currency: CurrencyCode | None = None
+    budget_amount: MoneyString | None = None
+    budget_currency: CurrencyCode | None = None
+    remaining_balance: SignedMoneyString | None = None
+    remaining_budget: SignedMoneyString | None = None
+    balance_comparison: LimitComparison
+    budget_comparison: LimitComparison
+    warnings: list[str] = Field(default_factory=list, max_length=50)
+    ai_opinion: str | None = Field(default=None, max_length=3000)
+    ai_opinion_available: bool = False
+
+    @field_validator("total_amount", "budget_amount", mode="before")
+    @classmethod
+    def validate_non_negative_amounts(cls, value: object) -> object:
+        return None if value is None else normalize_decimal_string(value, maximum=Decimal("1e30"))
+
+    @field_validator("remaining_balance", "remaining_budget", mode="before")
+    @classmethod
+    def validate_remaining_amounts(cls, value: object) -> object:
+        if value is None:
+            return None
+        if not isinstance(value, str) or not re.fullmatch(SIGNED_MONEY_PATTERN, value):
+            raise ValueError("Remaining amount must be a decimal string.")
+        amount = Decimal(value)
+        if not amount.is_finite() or abs(amount) >= Decimal("1e30"):
+            raise ValueError("Remaining amount must be finite and in the supported range.")
+        return format(amount, "f")
+
+
+class ShoppingChatProduct(StrictModel):
+    name: str | None = Field(default=None, max_length=200)
+    item_context: str = Field(default="unknown", max_length=32)
+    unit_price: str | None = Field(default=None, max_length=50)
+    original_unit_price: str | None = Field(default=None, max_length=50)
+    quantity: str | None = Field(default=None, max_length=32)
+    line_total: str | None = Field(default=None, max_length=50)
+    currency: str | None = Field(default=None, max_length=3)
+    uncertain_fields: list[str] = Field(default_factory=list, max_length=20)
+
+
+class ShoppingChatEvaluation(StrictModel):
+    status: str = Field(max_length=64)
+    total_amount: str | None = Field(default=None, max_length=50)
+    currency: str | None = Field(default=None, max_length=3)
+    total_complete: bool
+    matched_balance_amount: str | None = Field(default=None, max_length=50)
+    matched_balance_currency: str | None = Field(default=None, max_length=3)
+    remaining_balance: str | None = Field(default=None, max_length=50)
+    balance_comparison: str = Field(max_length=64)
+    balance_freshness: str = Field(max_length=32)
+    ai_opinion: str | None = Field(default=None, max_length=3000)
+    warnings: list[str] = Field(default_factory=list, max_length=20)
+
+
+class ShoppingChatContext(StrictModel):
+    screen_type: str = Field(default="unknown", max_length=32)
+    products: list[ShoppingChatProduct] = Field(default_factory=list, max_length=20)
+    purchase_evaluation: ShoppingChatEvaluation | None = None
+    warnings: list[str] = Field(default_factory=list, max_length=20)
+
+
+class ShoppingChatTurn(StrictModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=1200)
+
+
+class ShoppingChatRequest(StrictModel):
+    message: str = Field(min_length=1, max_length=1200)
+    context: ShoppingChatContext = Field(default_factory=ShoppingChatContext)
+    history: list[ShoppingChatTurn] = Field(default_factory=list, max_length=8)
+
+
+class ShoppingChatResponse(StrictModel):
+    answer: str = Field(min_length=1, max_length=3000)
+
+
 class ShoppingResponse(StrictModel):
     success: Literal[True] = True
     screen_type: ScreenType
@@ -322,6 +467,7 @@ class ShoppingResponse(StrictModel):
     checkout_breakdown_status: CheckoutBreakdownStatus
     requires_review: bool
     warnings: list[str] = Field(default_factory=list, max_length=100)
+    purchase_evaluation: PurchaseEvaluation | None = None
 
 
 def _nullable(schema: dict) -> dict:

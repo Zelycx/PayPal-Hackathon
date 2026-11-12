@@ -51,7 +51,117 @@ data class ShoppingCurrencyTotals(
     val displayedOtherChargesTotal: String?,
     val displayedDiscountTotal: String?,
     val visibleCheckoutTotal: String?,
+    val visibleCheckoutTotalConfidence: Double?,
 )
+
+data class PurchaseBudgetInput(val amount: String, val currency: String)
+data class ShoppingChatTurn(val role: String, val content: String)
+
+data class SandboxAvailableBalance(val currency: String, val availableAmount: String?)
+
+data class PurchaseEvaluation(
+    val status: String,
+    val totalAmount: String?,
+    val currency: String?,
+    val totalSource: String?,
+    val totalComplete: Boolean,
+    val sandboxBalances: List<SandboxAvailableBalance>,
+    val balanceAvailable: Boolean,
+    val balanceFreshness: String,
+    val balanceAsOfTime: String?,
+    val balanceLastRefreshTime: String?,
+    val matchedBalanceAmount: String?,
+    val matchedBalanceCurrency: String?,
+    val budgetAmount: String?,
+    val budgetCurrency: String?,
+    val remainingBalance: String?,
+    val remainingBudget: String?,
+    val balanceComparison: String,
+    val budgetComparison: String,
+    val warnings: List<String>,
+    val aiOpinion: String?,
+    val aiOpinionAvailable: Boolean,
+) {
+    fun displayStatus(): String = status.replace('_', ' ').lowercase().replaceFirstChar { it.uppercase() }
+
+    fun toDisplayText(): String = buildString {
+        appendLine("Purchase evaluation · PayPal Sandbox (advisory)")
+        appendLine("Status: ${displayStatus()}")
+        appendLine(
+            "Estimated total: " + (totalAmount?.let { money(it, null, currency) } ?: "not confirmed") +
+                (totalSource?.let { " · $it${if (totalComplete) "" else " (incomplete)"}" } ?: "")
+        )
+        appendLine("Total comparison: ${if (totalComplete) "complete" else "needs review"}")
+
+        appendLine()
+        appendLine("Sandbox available balances")
+        if (sandboxBalances.isEmpty()) {
+            appendLine("Unavailable")
+        } else {
+            sandboxBalances.forEach { row ->
+                appendLine("${row.currency}: ${row.availableAmount ?: "available amount not returned"}")
+            }
+        }
+        appendLine("Balance freshness: $balanceFreshness")
+        balanceAsOfTime?.let { appendLine("Balance as of: $it") }
+        balanceLastRefreshTime?.let { appendLine("Last refresh: $it") }
+        matchedBalanceAmount?.let {
+            appendLine("Comparison balance: ${money(it, null, matchedBalanceCurrency)}")
+            remainingBalance?.let { remaining ->
+                appendLine("Estimated remaining balance: ${money(remaining, null, matchedBalanceCurrency)}")
+            }
+        }
+        appendLine("Balance comparison: ${balanceComparison.replace('_', ' ').lowercase()}")
+
+        if (budgetAmount == null || budgetCurrency == null) {
+            appendLine("Spending limit: none supplied for this analysis")
+        } else {
+            appendLine("One-time spending limit: ${money(budgetAmount, null, budgetCurrency)}")
+            appendLine("Budget comparison: ${budgetComparison.replace('_', ' ').lowercase()}")
+            remainingBudget?.let { appendLine("Estimated remaining budget: ${money(it, null, budgetCurrency)}") }
+        }
+
+        appendLine()
+        appendLine("AI explanation")
+        appendLine(aiOpinion ?: "Unavailable. The status and comparisons above were calculated by the backend.")
+        if (warnings.isNotEmpty()) {
+            appendLine()
+            appendLine("Evaluation warnings")
+            warnings.forEach { appendLine("• $it") }
+        }
+    }.trim()
+
+    companion object {
+        fun parse(json: JSONObject): PurchaseEvaluation = PurchaseEvaluation(
+            status = json.string("status") ?: "NEEDS_REVIEW",
+            totalAmount = json.string("total_amount"),
+            currency = json.string("currency"),
+            totalSource = json.string("total_source"),
+            totalComplete = json.optBoolean("total_complete"),
+            sandboxBalances = json.array("sandbox_balances").map { row ->
+                SandboxAvailableBalance(
+                    currency = row.string("currency") ?: "???",
+                    availableAmount = row.string("available_amount"),
+                )
+            },
+            balanceAvailable = json.optBoolean("balance_available"),
+            balanceFreshness = json.string("balance_freshness") ?: "unknown",
+            balanceAsOfTime = json.string("balance_as_of_time"),
+            balanceLastRefreshTime = json.string("balance_last_refresh_time"),
+            matchedBalanceAmount = json.string("matched_balance_amount"),
+            matchedBalanceCurrency = json.string("matched_balance_currency"),
+            budgetAmount = json.string("budget_amount"),
+            budgetCurrency = json.string("budget_currency"),
+            remainingBalance = json.string("remaining_balance"),
+            remainingBudget = json.string("remaining_budget"),
+            balanceComparison = json.string("balance_comparison") ?: "UNAVAILABLE",
+            budgetComparison = json.string("budget_comparison") ?: "NOT_PROVIDED",
+            warnings = json.stringList("warnings"),
+            aiOpinion = json.string("ai_opinion"),
+            aiOpinionAvailable = json.optBoolean("ai_opinion_available"),
+        )
+    }
+}
 
 data class ShoppingResponse(
     val screenType: String,
@@ -63,7 +173,43 @@ data class ShoppingResponse(
     val checkoutBreakdownStatus: String,
     val requiresReview: Boolean,
     val warnings: List<String>,
+    val purchaseEvaluation: PurchaseEvaluation?,
 ) {
+    /** Shares only extracted shopping fields and the relevant matched-currency comparison. */
+    fun toChatContextJson(): JSONObject = JSONObject().apply {
+        put("screen_type", screenType)
+        put("products", JSONArray().apply {
+            items.take(20).forEach { item ->
+                put(JSONObject().apply {
+                    put("name", item.name)
+                    put("item_context", item.context)
+                    put("unit_price", item.unitPrice)
+                    put("original_unit_price", item.originalUnitPrice)
+                    put("quantity", item.quantity)
+                    put("line_total", item.lineTotal)
+                    put("currency", item.currency)
+                    put("uncertain_fields", JSONArray(item.uncertainFields.take(20)))
+                })
+            }
+        })
+        put("warnings", JSONArray(warnings.take(20)))
+        purchaseEvaluation?.let { evaluation ->
+            put("purchase_evaluation", JSONObject().apply {
+                put("status", evaluation.status)
+                put("total_amount", evaluation.totalAmount)
+                put("currency", evaluation.currency)
+                put("total_complete", evaluation.totalComplete)
+                put("matched_balance_amount", evaluation.matchedBalanceAmount)
+                put("matched_balance_currency", evaluation.matchedBalanceCurrency)
+                put("remaining_balance", evaluation.remainingBalance)
+                put("balance_comparison", evaluation.balanceComparison)
+                put("balance_freshness", evaluation.balanceFreshness)
+                put("ai_opinion", evaluation.aiOpinion)
+                put("warnings", JSONArray(evaluation.warnings.take(20)))
+            })
+        }
+    }
+
     fun toDisplayText(): String = buildString {
         appendLine("Shopping analysis · $screenType")
         if (requiresReview) appendLine("Review requested: some extracted values are uncertain or inconsistent.")
@@ -156,6 +302,10 @@ data class ShoppingResponse(
             appendLine("Warnings")
             warnings.forEach { appendLine("• $it") }
         }
+        purchaseEvaluation?.let {
+            appendLine()
+            appendLine(it.toDisplayText())
+        }
     }.trim()
 
     companion object {
@@ -215,6 +365,7 @@ data class ShoppingResponse(
                         displayedOtherChargesTotal = total.string("displayed_other_charges_total"),
                         displayedDiscountTotal = total.string("displayed_discount_total"),
                         visibleCheckoutTotal = total.string("visible_checkout_total"),
+                        visibleCheckoutTotalConfidence = total.optDoubleOrNull("visible_checkout_total_confidence"),
                     )
                 },
                 unassignedVisibleTotals = json.array("unassigned_visible_totals").map { total ->
@@ -226,6 +377,8 @@ data class ShoppingResponse(
                 checkoutBreakdownStatus = json.string("checkout_breakdown_status") ?: "unknown",
                 requiresReview = json.optBoolean("requires_review"),
                 warnings = json.stringList("warnings"),
+                purchaseEvaluation = json.optJSONObject("purchase_evaluation")
+                    ?.let(PurchaseEvaluation::parse),
             )
         }
     }
@@ -329,6 +482,9 @@ private fun money(amount: String?, symbol: String?, currency: String?): String? 
 
 private fun JSONObject.string(key: String): String? =
     if (isNull(key)) null else optString(key).takeIf { it.isNotBlank() && it != "null" }
+
+private fun JSONObject.optDoubleOrNull(key: String): Double? =
+    if (isNull(key) || !has(key)) null else optDouble(key).takeIf(Double::isFinite)
 
 private fun JSONObject.array(key: String): List<JSONObject> {
     val value: JSONArray = optJSONArray(key) ?: return emptyList()
