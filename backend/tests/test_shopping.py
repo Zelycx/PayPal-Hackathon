@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import io
 import json
@@ -30,6 +31,7 @@ from app.services.shopping_service import (
     GroqVisionProvider,
     build_public_response,
     get_shopping_service,
+    parse_shopping_response,
     sanitize_image,
 )
 
@@ -121,6 +123,13 @@ def service_for(provider: FakeProvider) -> ShoppingService:
             max_concurrent_requests=2,
         ),
     )
+
+
+def run_image_sanitization_inline(monkeypatch):
+    async def inline(function, *args, **kwargs):
+        return function(*args, **kwargs)
+
+    monkeypatch.setattr(service_module.asyncio, "to_thread", inline)
 
 
 @pytest.fixture
@@ -265,11 +274,118 @@ def test_groq_adapter_sends_cropped_image_and_selected_output_mode(monkeypatch, 
     assert captured["closed"] is True
     image_url = captured["messages"][1]["content"][1]["image_url"]["url"]
     assert image_url.startswith("data:image/png;base64,")
+    assert base64.b64decode(image_url.split(",", 1)[1]) == image_bytes()
     if output_mode == "json_schema":
         assert captured["response_format"]["json_schema"]["strict"] is True
     else:
         assert captured["response_format"] == {"type": "json_object"}
         assert "JSON Schema to follow exactly" in captured["messages"][0]["content"]
+
+
+@pytest.mark.parametrize(
+    ("message", "category"),
+    [
+        ("The requested model is not available.", "model_not_found"),
+        ("Invalid image format in image_url.", "invalid_request_error"),
+        ("Image payload exceeds the provider limit.", "invalid_request_error"),
+        ("The requested response_format is unsupported.", "invalid_request_error"),
+    ],
+)
+def test_groq_bad_requests_log_safe_provider_diagnostics(message, category, caplog, monkeypatch):
+    import httpx
+    from groq import BadRequestError
+
+    request = httpx.Request("POST", "https://api.groq.com/openai/v1/chat/completions")
+    provider_error = BadRequestError(
+        message,
+        response=httpx.Response(400, request=request),
+        body={"error": {"type": category, "message": message}},
+    )
+    service = service_for(FakeProvider(error=provider_error))
+    run_image_sanitization_inline(monkeypatch)
+    with caplog.at_level(logging.WARNING):
+        with pytest.raises(ShoppingServiceError) as error:
+            asyncio.run(service.analyze(image_bytes(), "image/png"))
+    assert error.value.code == "provider_request_rejected"
+    assert error.value.status_code == 502
+    assert "http_status=400" in caplog.text
+    assert f"category={category}" in caplog.text
+    assert f"message={message}" in caplog.text
+    assert f"model={DEFAULT_VISION_MODEL}" in caplog.text
+    assert "image_mime=image/png" in caplog.text
+    assert "image_width=24" in caplog.text
+    assert "image_height=12" in caplog.text
+    assert "image_bytes=" in caplog.text
+    assert "structured_output=json_schema" in caplog.text
+
+
+def test_groq_adapter_logs_actual_api_status_without_request_payload(monkeypatch, caplog):
+    import httpx
+    from groq import BadRequestError
+
+    request = httpx.Request("POST", "https://api.groq.com/openai/v1/chat/completions")
+    provider_error = BadRequestError(
+        "Invalid response format.",
+        response=httpx.Response(400, request=request),
+        body={"error": {"type": "invalid_request_error", "message": "Invalid response format."}},
+    )
+
+    class FakeCompletions:
+        async def create(self, **kwargs):
+            raise provider_error
+
+    class FakeGroq:
+        def __init__(self, **kwargs):
+            self.chat = SimpleNamespace(completions=FakeCompletions())
+
+        async def close(self):
+            pass
+
+    monkeypatch.setattr("groq.AsyncGroq", FakeGroq)
+    with caplog.at_level(logging.WARNING):
+        with pytest.raises(ShoppingServiceError) as error:
+            asyncio.run(GroqVisionProvider("fake-provider-key").analyze_image(
+                image_bytes(), "image/png", DEFAULT_VISION_MODEL, 10, 2500, "json_schema"
+            ))
+    assert error.value.code == "provider_request_rejected"
+    assert "http_status=400" in caplog.text
+    assert "Invalid response format." in caplog.text
+    assert "base64" not in caplog.text
+    assert "fake-provider-key" not in caplog.text
+
+
+def test_provider_diagnostics_redact_credentials_and_image_data(caplog):
+    from app.services.shopping_service import _safe_provider_error
+
+    class FakeStatusError(Exception):
+        status_code = 400
+        body = {
+            "error": {
+                "type": "invalid_request_error",
+                "message": "Rejected data:image/png;base64," + ("A" * 150) + " gsk_sensitivevalue",
+            }
+        }
+
+    _, _, message = _safe_provider_error(FakeStatusError())
+    assert "data:image" not in message
+    assert "A" * 120 not in message
+    assert "gsk_sensitivevalue" not in message
+
+
+def test_unsupported_image_format_and_oversize_are_rejected_before_provider_call(monkeypatch):
+    provider = FakeProvider()
+    service = service_for(provider)
+    run_image_sanitization_inline(monkeypatch)
+    with pytest.raises(ShoppingServiceError) as unsupported:
+        asyncio.run(service.analyze(image_bytes(), "image/gif"))
+    assert unsupported.value.code == "unsupported_image"
+    assert unsupported.value.status_code == 415
+
+    with pytest.raises(ShoppingServiceError) as oversized:
+        asyncio.run(service.analyze(b"x" * (MAX_UPLOAD_BYTES + 1), "image/png"))
+    assert oversized.value.code == "image_too_large"
+    assert oversized.value.status_code == 413
+    assert provider.calls == []
 
 
 def test_single_and_multiple_product_decimal_calculations():
@@ -447,7 +563,8 @@ def test_malformed_ai_json_and_schema_are_controlled_errors():
     assert error.value.status_code == 502
 
 
-def test_provider_timeout_is_bounded():
+def test_provider_timeout_is_bounded(monkeypatch):
+    run_image_sanitization_inline(monkeypatch)
     provider = FakeProvider(error=asyncio.TimeoutError())
     service = ShoppingService(
         provider,
@@ -473,7 +590,8 @@ def test_missing_key_or_model_is_reported_without_provider_call():
     assert not provider.calls
 
 
-def test_provider_exception_text_and_session_token_are_not_logged(caplog):
+def test_provider_exception_text_and_session_token_are_not_logged(caplog, monkeypatch):
+    run_image_sanitization_inline(monkeypatch)
     secret_like = "credential-must-not-appear"
     provider = FakeProvider(error=RuntimeError(secret_like))
     service = service_for(provider)
@@ -483,7 +601,8 @@ def test_provider_exception_text_and_session_token_are_not_logged(caplog):
     assert secret_like not in caplog.text
 
 
-def test_provider_rate_limit_auth_and_connection_errors_map_safely():
+def test_provider_rate_limit_auth_and_connection_errors_map_safely(monkeypatch):
+    run_image_sanitization_inline(monkeypatch)
     import httpx
     from groq import APIConnectionError, AuthenticationError, RateLimitError
 
@@ -506,9 +625,151 @@ def test_ai_free_text_warnings_are_not_echoed_to_api():
 
 def test_service_processes_image_without_writing_files(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
+    run_image_sanitization_inline(monkeypatch)
     response = asyncio.run(service_for(FakeProvider()).analyze(image_bytes(), "image/png"))
     assert response.success is True
     assert list(tmp_path.iterdir()) == []
+
+
+def test_service_valid_ai_response_is_returned():
+    # Exercise the same provider response string that ShoppingService validates.
+    response = build_public_response(parse_shopping_response(FakeProvider().response))
+    assert response.success is True
+    assert response.items[0].name == "Mouse"
+
+
+def test_service_accepts_missing_optional_ai_fields():
+    minimal = {"screen_type": "product_detail", "products": [{"name": "Cable", "item_context": "selected_product"}]}
+    parsed = parse_shopping_response(FakeProvider(json.dumps(minimal)).response)
+    assert parsed.products[0].name == "Cable"
+    assert parsed.products[0].unit_price is None
+    assert parsed.products[0].confidence.name is None
+
+
+def monetary_extraction(value):
+    data = extraction(products=[product(currency=None, symbol=None)])
+    data["products"][0].update({
+        "unit_price": value,
+        "original_unit_price": value,
+        "displayed_line_total": value,
+    })
+    data["charges"] = [{"kind": "shipping", "amount": value, "currency": None, "confidence": 0.99}]
+    data["discounts"] = [{"kind": "sale", "scope": "item", "amount": value, "currency": None, "confidence": 0.99}]
+    data["visible_totals"] = [{"kind": "items_subtotal", "amount": value, "currency": None, "confidence": 0.99}]
+    return data
+
+
+def parsed_monetary_values(value):
+    parsed = parse_shopping_response(FakeProvider(json.dumps(monetary_extraction(value))).response)
+    return [
+        parsed.products[0].unit_price,
+        parsed.products[0].original_unit_price,
+        parsed.products[0].displayed_line_total,
+        parsed.charges[0].amount,
+        parsed.discounts[0].amount,
+        parsed.visible_totals[0].amount,
+    ], parsed
+
+
+@pytest.mark.parametrize(
+    ("value", "expected", "expected_currency", "expected_symbol"),
+    [
+        (1234, "1234", None, None),
+        (1234.5, "1234.5", None, None),
+        ("1234.500", "1234.500", None, None),
+        ("0", "0", None, None),
+        ("1,234.50", "1234.50", None, None),
+        ("₱1,234.50", "1234.50", None, "₱"),
+        ("$1,234.50", "1234.50", None, "$"),
+        ("USD 1,234.50", "1234.50", "USD", None),
+    ],
+)
+def test_all_six_monetary_fields_normalize_valid_values(value, expected, expected_currency, expected_symbol):
+    values, parsed = parsed_monetary_values(value)
+    assert values == [expected] * 6
+    assert parsed.products[0].currency == expected_currency
+    assert parsed.products[0].currency_symbol == expected_symbol
+    assert parsed.charges[0].currency == expected_currency
+    assert parsed.discounts[0].currency == expected_currency
+    assert parsed.visible_totals[0].currency == expected_currency
+
+
+def test_all_six_monetary_fields_preserve_null_values():
+    values, parsed = parsed_monetary_values(None)
+    assert values == [None] * 6
+    assert parsed.products[0].currency is None
+    assert parsed.charges[0].currency is None
+
+
+@pytest.mark.parametrize("value", [-12, -12.5, "-12.50", "", "1,23.45", "12.34.56", "$", "(12.00)"])
+def test_all_six_monetary_fields_reject_negative_or_malformed_values(value):
+    with pytest.raises(ShoppingServiceError) as error:
+        parse_shopping_response(FakeProvider(json.dumps(monetary_extraction(value))).response)
+    assert error.value.code == "invalid_ai_schema"
+
+
+def test_currency_formatted_amount_conflicting_with_currency_metadata_is_rejected():
+    data = monetary_extraction("$10.00")
+    data["products"][0]["currency_symbol"] = "€"
+    with pytest.raises(ShoppingServiceError) as error:
+        parse_shopping_response(FakeProvider(json.dumps(data)).response)
+    assert error.value.code == "invalid_ai_schema"
+
+
+def test_validation_diagnostics_report_all_money_paths_without_echoing_values(caplog):
+    data = monetary_extraction("not-a-price-secret")
+    with pytest.raises(ShoppingServiceError):
+        parse_shopping_response(FakeProvider(json.dumps(data)).response)
+    logged = caplog.text
+    for field in (
+        "products.0.unit_price",
+        "products.0.original_unit_price",
+        "products.0.displayed_line_total",
+        "charges.0.amount",
+        "discounts.0.amount",
+        "visible_totals.0.amount",
+    ):
+        assert field in logged
+    assert "plain decimal string" in logged
+    assert "non-negative decimal amount" in logged
+    assert "not-a-price-secret" not in logged
+
+
+def test_service_accepts_markdown_wrapped_json():
+    wrapped = "```json\n" + json.dumps(extraction()) + "\n```"
+    response = build_public_response(parse_shopping_response(FakeProvider(wrapped).response))
+    assert response.success is True
+
+
+def test_service_distinguishes_invalid_json_from_schema_validation_errors():
+    with pytest.raises(ShoppingServiceError) as json_error:
+        parse_shopping_response(FakeProvider("not json").response)
+    assert json_error.value.code == "invalid_ai_json"
+    assert json_error.value.status_code == 502
+
+    invalid_schema = extraction()
+    invalid_schema["products"][0]["confidence"]["unit_price"] = "high"
+    with pytest.raises(ShoppingServiceError) as schema_error:
+        parse_shopping_response(FakeProvider(json.dumps(invalid_schema)).response)
+    assert schema_error.value.code == "invalid_ai_schema"
+    assert schema_error.value.status_code == 502
+
+
+def test_service_rejects_unexpected_ai_response_structure():
+    with pytest.raises(ShoppingServiceError) as error:
+        parse_shopping_response(FakeProvider(json.dumps({"result": {"products": []}})).response)
+    assert error.value.code == "invalid_ai_schema"
+
+
+def test_different_screenshot_responses_validate_independently():
+    first_data = extraction(products=[product(name="Mouse", price="10.00")])
+    second_data = extraction(products=[product(name="Keyboard", price="25.50")])
+    first = FakeProvider(json.dumps(first_data))
+    second = FakeProvider(json.dumps(second_data))
+    first_response = build_public_response(parse_shopping_response(first.response))
+    second_response = build_public_response(parse_shopping_response(second.response))
+    assert first_response.items[0].name == "Mouse"
+    assert second_response.items[0].name == "Keyboard"
 
 
 def test_extraction_schema_is_strict_at_every_object_level():
