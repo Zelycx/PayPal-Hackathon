@@ -22,7 +22,7 @@ android {
         versionName = "1.0"
 
         val backendUrl = providers.gradleProperty("PAYPAL_BACKEND_URL")
-            .getOrElse("http://10.0.2.2:8000")
+            .getOrElse("http://192.168.1.206:8000/")
         buildConfigField("String", "BACKEND_BASE_URL", "\"$backendUrl\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
