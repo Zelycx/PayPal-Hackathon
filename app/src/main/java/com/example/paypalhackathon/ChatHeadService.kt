@@ -18,6 +18,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.widget.AppCompatImageView
 import com.example.paypalhackathon.R
+import com.example.paypalhackathon.MainActivity
 import com.example.paypalhackathon.ScreenReader
 import kotlin.math.abs
 
@@ -372,15 +373,14 @@ class ChatHeadService : Service() {
             .from(this)
             .inflate(R.layout.float_window, null)
 
-        // Wire toolbar actions on the inflated overlay views.
-        container.findViewById<View>(R.id.cart).setOnClickListener {
-            Toast.makeText(this, "Shopping feature coming soon!", Toast.LENGTH_SHORT).show()
+        container.findViewById<View>(R.id.cart_button).setOnClickListener {
+            openMainActivity(MainActivity.ACTION_OPEN_SHOPPING)
         }
         container.findViewById<View>(R.id.selector).setOnClickListener {
-            Toast.makeText(this, "Screen selector coming soon!", Toast.LENGTH_SHORT).show()
+            openMainActivity(MainActivity.ACTION_SELECT_SCREENSHOT)
         }
         container.findViewById<View>(R.id.wallet).setOnClickListener {
-            Toast.makeText(this, "Wallet feature coming soon!", Toast.LENGTH_SHORT).show()
+            openMainActivity(MainActivity.ACTION_OPEN_WALLET)
         }
 
         // The footer avatar closes the overlay.
@@ -415,6 +415,17 @@ class ChatHeadService : Service() {
             chatHeadAdded = false
 
             addChatHead()
+        }
+    }
+
+    private fun openMainActivity(action: String) {
+        val intent = Intent(this, MainActivity::class.java)
+            .setAction(action)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        try {
+            startActivity(intent)
+        } catch (_: Exception) {
+            Toast.makeText(this, "Could not open the companion screen.", Toast.LENGTH_SHORT).show()
         }
     }
 

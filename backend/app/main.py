@@ -3,6 +3,7 @@ from fastapi import FastAPI
 
 from app.api.session import router as session_router
 from app.api.paypal import router as paypal_router
+from app.api.shopping import router as shopping_router
 
 app = FastAPI(
     title="AI Financial Companion",
@@ -30,3 +31,4 @@ def health():
 # Register API routers
 app.include_router(session_router)
 app.include_router(paypal_router)
+app.include_router(shopping_router)

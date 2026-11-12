@@ -4,6 +4,10 @@ plugins {
 
 android {
     namespace = "com.example.paypalhackathon"
+    buildFeatures {
+        buildConfig = true
+    }
+
     compileSdk {
         version = release(37) {
             minorApiLevel = 1
@@ -17,12 +21,20 @@ android {
         versionCode = 1
         versionName = "1.0"
 
+        val backendUrl = providers.gradleProperty("PAYPAL_BACKEND_URL")
+            .getOrElse("http://10.0.2.2:8000")
+        buildConfigField("String", "BACKEND_BASE_URL", "\"$backendUrl\"")
+
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
+        debug {
+            manifestPlaceholders["allowCleartextTraffic"] = "true"
+        }
         release {
             isMinifyEnabled = false
+            manifestPlaceholders["allowCleartextTraffic"] = "false"
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
