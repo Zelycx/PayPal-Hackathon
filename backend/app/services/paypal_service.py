@@ -14,7 +14,10 @@ load_dotenv(BACKEND_DIR / ".env")
 PAYPAL_BASE_URL = os.getenv(
     "PAYPAL_BASE_URL",
     "https://api-m.sandbox.paypal.com"
-)
+).rstrip("/")
+
+if PAYPAL_BASE_URL != "https://api-m.sandbox.paypal.com":
+    raise RuntimeError("This integration is restricted to the PayPal Sandbox API.")
 
 PAYPAL_CLIENT_ID = os.getenv("PAYPAL_CLIENT_ID")
 PAYPAL_CLIENT_SECRET = os.getenv("PAYPAL_CLIENT_SECRET")
@@ -115,43 +118,6 @@ async def get_paypal_balances():
         "as_of_time": data.get("as_of_time"),
         "last_refresh_time": data.get("last_refresh_time"),
     }
-
-async def get_paypal_balances():
-    token = await get_access_token()
-
-    url = f"{PAYPAL_BASE_URL}/v1/reporting/balances"
-
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.get(
-            url,
-            headers={
-                "Authorization": f"Bearer {token}",
-                "Accept": "application/json",
-            },
-        )
-
-    if response.status_code == 403:
-        raise RuntimeError(
-            "PayPal denied balance access. "
-            "The application may not have the required "
-            "reporting/balances/read permission."
-        )
-
-    if response.status_code != 200:
-        raise RuntimeError(
-            f"PayPal balance request failed "
-            f"(HTTP {response.status_code})."
-        )
-
-    data = response.json()
-
-    return {
-        "balances": data.get("balances", []),
-        "account_id": data.get("account_id"),
-        "as_of_time": data.get("as_of_time"),
-        "last_refresh_time": data.get("last_refresh_time"),
-    }
-
 
 async def get_paypal_transactions(days: int = 30, page: int = 1, page_size: int = 100):
     if not 1 <= days <= 31:

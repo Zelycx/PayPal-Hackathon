@@ -15,8 +15,10 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.ImageView
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.widget.AppCompatImageView
 import com.example.paypalhackathon.R
+import com.example.paypalhackathon.MainActivity
 import kotlin.math.abs
 
 class ChatHeadService : Service() {
@@ -370,6 +372,16 @@ class ChatHeadService : Service() {
             .from(this)
             .inflate(R.layout.float_window, null)
 
+        container.findViewById<View>(R.id.cart_button).setOnClickListener {
+            openMainActivity(MainActivity.ACTION_OPEN_SHOPPING)
+        }
+        container.findViewById<View>(R.id.selector).setOnClickListener {
+            openMainActivity(MainActivity.ACTION_SELECT_SCREENSHOT)
+        }
+        container.findViewById<View>(R.id.wallet).setOnClickListener {
+            openMainActivity(MainActivity.ACTION_OPEN_WALLET)
+        }
+
         // The footer avatar closes the overlay.
         chatHead.setImageResource(R.drawable.chat_foot_placeholder)
 
@@ -402,6 +414,17 @@ class ChatHeadService : Service() {
             chatHeadAdded = false
 
             addChatHead()
+        }
+    }
+
+    private fun openMainActivity(action: String) {
+        val intent = Intent(this, MainActivity::class.java)
+            .setAction(action)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        try {
+            startActivity(intent)
+        } catch (_: Exception) {
+            Toast.makeText(this, "Could not open the companion screen.", Toast.LENGTH_SHORT).show()
         }
     }
 
