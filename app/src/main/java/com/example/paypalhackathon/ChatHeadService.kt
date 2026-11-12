@@ -15,6 +15,7 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.ImageView
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.widget.AppCompatImageView
 import com.example.paypalhackathon.R
 import kotlin.math.abs
@@ -369,6 +370,17 @@ class ChatHeadService : Service() {
         val container = android.view.LayoutInflater
             .from(this)
             .inflate(R.layout.float_window, null)
+
+        // Wire toolbar actions on the inflated overlay views.
+        container.findViewById<View>(R.id.cart).setOnClickListener {
+            Toast.makeText(this, "Shopping feature coming soon!", Toast.LENGTH_SHORT).show()
+        }
+        container.findViewById<View>(R.id.selector).setOnClickListener {
+            Toast.makeText(this, "Screen selector coming soon!", Toast.LENGTH_SHORT).show()
+        }
+        container.findViewById<View>(R.id.wallet).setOnClickListener {
+            Toast.makeText(this, "Wallet feature coming soon!", Toast.LENGTH_SHORT).show()
+        }
 
         // The footer avatar closes the overlay.
         chatHead.setImageResource(R.drawable.chat_foot_placeholder)

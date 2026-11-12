@@ -20,6 +20,7 @@
 
         <!-- MONEY -->
         <ImageView
+            android:id="@+id/cart"
             android:contentDescription="@string/cart"
             android:layout_width="30dp"
             android:layout_height="30dp"
