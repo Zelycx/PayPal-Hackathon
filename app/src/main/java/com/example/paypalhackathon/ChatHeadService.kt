@@ -2,7 +2,10 @@
 package com.example.paypalhackaton
 
 import android.app.Service
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
@@ -17,8 +20,10 @@ import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.widget.AppCompatImageView
+import androidx.core.content.ContextCompat
 import com.example.paypalhackathon.R
 import com.example.paypalhackathon.MainActivity
+import com.example.paypalhackathon.PayPalHackathonApp
 import com.example.paypalhackathon.ScreenReader
 import kotlin.math.abs
 
@@ -28,6 +33,9 @@ class ChatHeadService : Service() {
 
         const val ACTION_STATE_CHANGED =
             "com.example.paypalhackaton.STATE_CHANGED"
+
+        const val ACTION_ACTIVATE =
+            "com.example.paypalhackaton.ACTIVATE"
         @Volatile
         var isRunning = false
             private set
@@ -40,6 +48,21 @@ class ChatHeadService : Service() {
 
         const val ACTION_APP_BACKGROUND =
             "com.example.paypalhackaton.APP_BACKGROUND"
+    }
+
+    private val appVisibilityReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.action) {
+                ACTION_APP_FOREGROUND -> {
+                    appInForeground = true
+                    hideAllOverlays()
+                }
+                ACTION_APP_BACKGROUND -> {
+                    appInForeground = false
+                    showAllOverlays()
+                }
+            }
+        }
     }
 
     private lateinit var windowManager: WindowManager
@@ -82,12 +105,26 @@ class ChatHeadService : Service() {
     override fun onCreate() {
         super.onCreate()
 
+        appInForeground = PayPalHackathonApp.appInForeground
+
         windowManager =
             getSystemService(WINDOW_SERVICE) as WindowManager
+
+        ContextCompat.registerReceiver(
+            this,
+            appVisibilityReceiver,
+            IntentFilter().apply {
+                addAction(ACTION_APP_FOREGROUND)
+                addAction(ACTION_APP_BACKGROUND)
+            },
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
 
         createChatHead()
 
         isRunning = true
+
+        sendBroadcast(Intent(ACTION_STATE_CHANGED).setPackage(packageName))
 
         if (appInForeground) {
             hideAllOverlays()
@@ -101,6 +138,11 @@ class ChatHeadService : Service() {
     ): Int {
 
         when (intent?.action) {
+
+            ACTION_ACTIVATE -> {
+                appInForeground = false
+                addChatHead()
+            }
 
             ACTION_APP_FOREGROUND -> hideAllOverlays()
 
@@ -474,6 +516,7 @@ class ChatHeadService : Service() {
         // The close-target path calls stopSelf(), so this also ends capture
         // when Bubble Mode is closed without MainActivity being open.
         ScreenReader.stop(this)
+        unregisterReceiver(appVisibilityReceiver)
         removeDropTarget()
         hideChatWindow()
         removeChatHead()

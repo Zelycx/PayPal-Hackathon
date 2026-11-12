@@ -8,6 +8,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
 
     <application
+        android:name=".PayPalHackathonApp"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
@@ -18,6 +19,7 @@
         android:usesCleartextTraffic="${allowCleartextTraffic}"
         android:theme="@style/Theme.PayPalHackathon">
 
+        <!-- Main Activity -->
         <activity
             android:name=".MainActivity"
             android:launchMode="singleTop"
@@ -30,6 +32,12 @@
 
         </activity>
 
+        <!-- Transaction History -->
+        <activity
+            android:name=".TransactionHistory"
+            android:exported="false" />
+
+        <!-- Floating Bubble Service -->
         <service
             android:name="com.example.paypalhackaton.ChatHeadService"
             android:exported="false" />

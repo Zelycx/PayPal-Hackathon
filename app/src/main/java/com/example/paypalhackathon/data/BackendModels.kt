@@ -236,6 +236,23 @@ data class WalletDashboard(
     val balances: JSONObject,
     val transactions: JSONObject,
 ) {
+    /** Returns actual Sandbox balance values for compact navigation summaries. */
+    fun balanceSummary(): String {
+        val rows = balances.optJSONObject("data")?.array("balances").orEmpty()
+        if (rows.isEmpty()) return "No balances returned"
+
+        return rows.joinToString(" · ") { row ->
+            val total = row.optJSONObject("total_balance")
+            val value = total?.string("value")
+            val currency = total?.string("currency_code") ?: row.string("currency")
+            if (value == null) {
+                row.toString()
+            } else {
+                listOfNotNull(currency, value).joinToString(" ")
+            }
+        }
+    }
+
     fun toDisplayText(): String = buildString {
         appendLine("PayPal Sandbox")
         val connected = connection.optBoolean("connected")

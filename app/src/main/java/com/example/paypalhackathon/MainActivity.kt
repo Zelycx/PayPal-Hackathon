@@ -12,6 +12,7 @@ import android.os.Bundle
 import android.provider.Settings
 import android.view.View
 import android.widget.Button
+import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
@@ -28,6 +29,10 @@ import com.example.paypalhackaton.ChatHeadService
 class MainActivity : AppCompatActivity() {
 
     private lateinit var bubbleButton: Button
+    private lateinit var menuButton: Button
+    private lateinit var menuPanel: LinearLayout
+    private lateinit var paypalBalance: TextView
+    private lateinit var transactionHistoryButton: Button
     private lateinit var apiStatus: TextView
     private lateinit var apiResult: TextView
     private lateinit var apiProgress: ProgressBar
@@ -72,11 +77,24 @@ class MainActivity : AppCompatActivity() {
         }
 
         bubbleButton = findViewById(R.id.bubble_button)
+        menuButton = findViewById(R.id.menu_button)
+        menuPanel = findViewById(R.id.balance_box)
+        paypalBalance = findViewById(R.id.paypal_balance)
+        transactionHistoryButton = findViewById(R.id.page_switch_button)
         apiStatus = findViewById(R.id.api_status)
         apiResult = findViewById(R.id.api_result)
         apiProgress = findViewById(R.id.api_progress)
         updateButton()
         bubbleButton.setOnClickListener { toggleBubbleMode() }
+
+        menuButton.setOnClickListener {
+            val opening = menuPanel.visibility != View.VISIBLE
+            menuPanel.visibility = if (opening) View.VISIBLE else View.GONE
+            if (opening) loadSandboxWallet()
+        }
+        transactionHistoryButton.setOnClickListener {
+            startActivity(Intent(this, TransactionHistory::class.java))
+        }
 
         if (intent?.action == null) {
             apiClient.ensureGuestSession { result ->
@@ -101,7 +119,10 @@ class MainActivity : AppCompatActivity() {
     /** Starts Bubble Mode; capture starts only when the consent data is present. */
     private fun startBubbleMode(resultCode: Int? = null, resultData: Intent? = null) {
         try {
-            startService(Intent(this, ChatHeadService::class.java))
+            startService(
+                Intent(this, ChatHeadService::class.java)
+                    .setAction(ChatHeadService.ACTION_ACTIVATE),
+            )
         } catch (e: Exception) {
             Toast.makeText(
                 this,
@@ -143,18 +164,10 @@ class MainActivity : AppCompatActivity() {
             ContextCompat.RECEIVER_NOT_EXPORTED,
         )
 
-        ChatHeadService.appInForeground = true
-        if (ChatHeadService.isRunning) {
-            startService(Intent(this, ChatHeadService::class.java).setAction(ChatHeadService.ACTION_APP_FOREGROUND))
-        }
         updateButton()
     }
 
     override fun onStop() {
-        ChatHeadService.appInForeground = false
-        if (ChatHeadService.isRunning) {
-            startService(Intent(this, ChatHeadService::class.java).setAction(ChatHeadService.ACTION_APP_BACKGROUND))
-        }
         unregisterReceiver(serviceStateReceiver)
         super.onStop()
     }
@@ -169,6 +182,7 @@ class MainActivity : AppCompatActivity() {
             ACTION_SELECT_SCREENSHOT -> openScreenshotPicker()
             ACTION_OPEN_SHOPPING -> showCachedShoppingResults()
             ACTION_OPEN_WALLET -> loadSandboxWallet()
+            ACTION_TOGGLE_BUBBLE -> toggleBubbleMode()
             else -> Unit
         }
     }
@@ -248,9 +262,11 @@ class MainActivity : AppCompatActivity() {
             setBusy(false)
             result.onSuccess { wallet ->
                 apiResult.text = wallet.toDisplayText()
+                paypalBalance.text = wallet.balanceSummary()
                 setStatus("Sandbox data loaded.")
             }.onFailure { error ->
                 val detail = error.message ?: "PayPal Sandbox is unavailable."
+                paypalBalance.text = "Unavailable"
                 apiResult.text = "PayPal Sandbox data could not be loaded.\n\n" + detail +
                     "\n\nCheck the backend's Sandbox credentials and reporting permissions."
                 setStatus("PayPal Sandbox unavailable.")
@@ -283,5 +299,6 @@ class MainActivity : AppCompatActivity() {
         const val ACTION_SELECT_SCREENSHOT = "com.example.paypalhackathon.SELECT_SCREENSHOT"
         const val ACTION_OPEN_SHOPPING = "com.example.paypalhackathon.OPEN_SHOPPING"
         const val ACTION_OPEN_WALLET = "com.example.paypalhackathon.OPEN_WALLET"
+        const val ACTION_TOGGLE_BUBBLE = "com.example.paypalhackathon.TOGGLE_BUBBLE"
     }
 }
