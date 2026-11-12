@@ -19,6 +19,7 @@ import android.widget.Toast
 import androidx.appcompat.widget.AppCompatImageView
 import com.example.paypalhackathon.R
 import com.example.paypalhackathon.MainActivity
+import com.example.paypalhackathon.ScreenReader
 import kotlin.math.abs
 
 class ChatHeadService : Service() {
@@ -470,6 +471,9 @@ class ChatHeadService : Service() {
     }
 
     override fun onDestroy() {
+        // The close-target path calls stopSelf(), so this also ends capture
+        // when Bubble Mode is closed without MainActivity being open.
+        ScreenReader.stop(this)
         removeDropTarget()
         hideChatWindow()
         removeChatHead()

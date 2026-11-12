@@ -4,7 +4,9 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.res.ColorStateList
 import android.graphics.Color
+import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
@@ -37,6 +39,18 @@ class MainActivity : AppCompatActivity() {
             setStatus("No screenshot selected.")
         } else {
             analyzeScreenshot(uri)
+        }
+    }
+
+    // Register before the activity is started so Android can restore the
+    // result callback correctly if the activity is recreated during consent.
+    private val screenCaptureConsentLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == RESULT_OK && result.data != null) {
+            startBubbleMode(result.resultCode, result.data)
+        } else {
+            startBubbleMode()
         }
     }
 
@@ -84,6 +98,42 @@ class MainActivity : AppCompatActivity() {
         handleAction(intent.action)
     }
 
+    /** Starts Bubble Mode; capture starts only when the consent data is present. */
+    private fun startBubbleMode(resultCode: Int? = null, resultData: Intent? = null) {
+        try {
+            startService(Intent(this, ChatHeadService::class.java))
+        } catch (e: Exception) {
+            Toast.makeText(
+                this,
+                "Service error: ${e.message}",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+
+        if (resultCode != null && resultData != null) {
+            try {
+                ScreenReader.start(this, resultCode, resultData)
+                Toast.makeText(this, "Bubble Mode activated", Toast.LENGTH_SHORT).show()
+            } catch (_: Exception) {
+                // Bubble Mode remains useful even if the capture service cannot start.
+                ScreenReader.stop(this)
+                Toast.makeText(
+                    this,
+                    "Bubble Mode activated. Screen Read is unavailable.",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        } else {
+            Toast.makeText(
+                this,
+                "Bubble Mode activated. Screen Read is unavailable.",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+        finish()
+    }
+
     override fun onStart() {
         super.onStart()
         ContextCompat.registerReceiver(
@@ -124,27 +174,31 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun toggleBubbleMode() {
+        if (ChatHeadService.isRunning) {
+            ScreenReader.stop(this)
+            stopService(Intent(this, ChatHeadService::class.java))
+            Toast.makeText(this, "Bubble Mode deactivated", Toast.LENGTH_SHORT).show()
+            return
+        }
+
         if (!Settings.canDrawOverlays(this)) {
             val settingsIntent = Intent(
                 Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                Uri.parse("package:" + packageName),
+                Uri.parse("package:$packageName"),
             )
             startActivity(settingsIntent)
             Toast.makeText(this, "Please allow Display over other apps.", Toast.LENGTH_LONG).show()
             return
         }
 
-        if (ChatHeadService.isRunning) {
-            stopService(Intent(this, ChatHeadService::class.java))
-            Toast.makeText(this, "Bubble Mode deactivated", Toast.LENGTH_SHORT).show()
-        } else {
-            try {
-                startService(Intent(this, ChatHeadService::class.java))
-                Toast.makeText(this, "Bubble Mode activated", Toast.LENGTH_SHORT).show()
-                finish()
-            } catch (error: Exception) {
-                Toast.makeText(this, "Service error: " + error.message, Toast.LENGTH_LONG).show()
-            }
+        try {
+            val projectionManager = getSystemService(MEDIA_PROJECTION_SERVICE)
+                as MediaProjectionManager
+            screenCaptureConsentLauncher.launch(
+                projectionManager.createScreenCaptureIntent(),
+            )
+        } catch (error: Exception) {
+            Toast.makeText(this, "Service error: ${error.message}", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -218,7 +272,7 @@ class MainActivity : AppCompatActivity() {
     private fun updateButton() {
         if (!::bubbleButton.isInitialized) return
         val active = ChatHeadService.isRunning
-        bubbleButton.backgroundTintList = android.content.res.ColorStateList.valueOf(
+        bubbleButton.backgroundTintList = ColorStateList.valueOf(
             Color.parseColor(if (active) "#777777" else "#FF9800"),
         )
         bubbleButton.setTextColor(Color.WHITE)
