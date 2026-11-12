@@ -8,59 +8,7 @@
     android:layout_height="match_parent"
     tools:context=".MainActivity">
 
-    <!-- TOP BAR -->
-    <LinearLayout
-        android:id="@+id/main_action_bar"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:gravity="center"
-        android:orientation="horizontal"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintTop_toTopOf="parent">
-
-        <!-- CART -->
-        <ImageView
-            android:id="@+id/cart"
-            android:contentDescription="@string/cart"
-            android:layout_width="50dp"
-            android:layout_height="50dp"
-            android:padding="5dp"
-            android:scaleType="fitCenter"
-            android:src="@drawable/cart_placeholder"
-            app:layout_constraintBottom_toBottomOf="parent"
-            app:layout_constraintStart_toStartOf="parent"
-            android:clickable="true"
-            android:focusable="true" />
-
-        <!-- SELECTOR -->
-        <ImageView
-            android:contentDescription="@string/selector"
-            android:id="@+id/selector"
-            android:layout_width="50dp"
-            android:layout_height="50dp"
-            android:padding="5dp"
-            android:scaleType="fitCenter"
-            android:src="@drawable/selector_placeholder"
-            app:layout_constraintBottom_toBottomOf="parent"
-            app:layout_constraintStart_toStartOf="parent"
-            android:clickable="true"
-            android:focusable="true" />
-
-        <!-- WALLET -->
-        <ImageView
-            android:contentDescription="@string/wallet"
-            android:id="@+id/wallet"
-            android:layout_width="50dp"
-            android:layout_height="50dp"
-            android:scaleType="fitCenter"
-            android:padding="5dp"
-            android:src="@drawable/wallet_placeholder"
-            app:layout_constraintBottom_toBottomOf="parent"
-            app:layout_constraintStart_toStartOf="parent"
-            android:clickable="true"
-            android:focusable="true" />
-    </LinearLayout>
-
+    <!-- CART INFO BOX -->
     <LinearLayout
         android:id="@+id/cart_box"
         android:layout_width="0dp"
@@ -70,9 +18,9 @@
         android:background="#6d9239"
         android:visibility="gone"
         android:elevation="8dp"
-        app:layout_constraintStart_toStartOf="@id/main_action_bar"
-        app:layout_constraintEnd_toEndOf="@id/main_action_bar"
-        app:layout_constraintTop_toBottomOf="@id/main_action_bar">
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toTopOf="parent">
 
         <TextView
             android:id="@+id/cart_info"
@@ -84,7 +32,7 @@
 
     </LinearLayout>
 
-    <!-- WALLET INFO BOX LAYOUT -->
+    <!-- WALLET INFO BOX -->
     <LinearLayout
         android:id="@+id/wallet_box"
         android:layout_width="0dp"
@@ -94,11 +42,10 @@
         android:background="#8daf50"
         android:visibility="gone"
         android:elevation="8dp"
-        app:layout_constraintStart_toStartOf="@id/main_action_bar"
-        app:layout_constraintEnd_toEndOf="@id/main_action_bar"
-        app:layout_constraintTop_toBottomOf="@id/main_action_bar">
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toTopOf="parent">
 
-        <!-- WALLET INFO BOX -->
         <TextView
             android:id="@+id/wallet_info"
             android:layout_width="wrap_content"
@@ -106,38 +53,109 @@
             android:text=""
             android:textColor="#FFFFFF"
             android:textSize="14sp" />
+
     </LinearLayout>
 
-    <!-- BOTTOM BAR -->
+    <!-- BOTTOM PANEL -->
     <LinearLayout
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:gravity="center"
+        android:id="@+id/bottom_panel"
+        android:layout_width="0dp"
+        android:layout_height="120dp"
+        android:layout_marginStart="5dp"
+        android:layout_marginEnd="5dp"
+        android:layout_marginBottom="5dp"
         android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="5dp"
+        android:paddingEnd="5dp"
+        android:background="@drawable/float_panel_background"
+        app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintBottom_toBottomOf="parent">
 
-        <!-- AVATAR -->
+        <!-- LEFT CIRCULAR IMAGE -->
         <ImageView
             android:id="@+id/avatar_placeholder"
-            android:layout_width="132dp"
-            android:layout_height="180dp"
-            android:contentDescription="@string/avatar_placeholder"
-            android:scaleType="fitCenter"
-            android:src="@drawable/avatar_placeholder"
-            app:layout_constraintBottom_toBottomOf="parent"
-            app:layout_constraintStart_toStartOf="parent" />
+            android:layout_width="100dp"
+            android:layout_height="100dp"
+            android:layout_gravity="center_vertical"
+            android:layout_marginStart="5dp"
+            android:contentDescription="@string/cart"
+            android:scaleType="centerCrop"
+            android:background="@drawable/cart_placeholder"
+            android:src="@drawable/cart_placeholder"
+            android:clipToOutline="true" />
 
-        <!-- SPEECH BUBBLE -->
-        <ImageView
-            android:id="@+id/speech_bubble_placeholder"
-            android:layout_width="279dp"
-            android:layout_height="180dp"
-            android:contentDescription="@string/speech_bubble_placeholder"
-            android:scaleType="fitCenter"
-            android:src="@drawable/speech_bubble_placeholder"
-            app:layout_constraintBottom_toBottomOf="parent"
-            app:layout_constraintEnd_toEndOf="parent" />
+        <!-- RIGHT SIDE -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="100dp"
+            android:layout_weight="1"
+            android:layout_marginStart="5dp"
+            android:orientation="vertical">
+
+            <!-- TEXT BOX: 30DP -->
+            <TextView
+                android:id="@+id/panel_text"
+                android:layout_width="match_parent"
+                android:layout_height="30dp"
+                android:gravity="center_vertical"
+                android:paddingStart="8dp"
+                android:text="Text"
+                android:textColor="#FFFFFF"
+                android:background="#444444" />
+
+            <!-- THREE BUTTONS: 70DP -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="70dp"
+                android:orientation="horizontal"
+                android:gravity="center"
+                android:weightSum="3">
+
+                <!-- CART -->
+                <ImageView
+                    android:id="@+id/cart"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:padding="10dp"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/cart_placeholder"
+                    android:contentDescription="@string/cart"
+                    android:clickable="true"
+                    android:focusable="true" />
+
+                <!-- SELECTOR -->
+                <ImageView
+                    android:id="@+id/selector"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:padding="10dp"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/selector_placeholder"
+                    android:contentDescription="@string/selector"
+                    android:clickable="true"
+                    android:focusable="true" />
+
+                <!-- WALLET -->
+                <ImageView
+                    android:id="@+id/wallet"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:padding="10dp"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/wallet_placeholder"
+                    android:contentDescription="@string/wallet"
+                    android:clickable="true"
+                    android:focusable="true" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+
     </LinearLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>
