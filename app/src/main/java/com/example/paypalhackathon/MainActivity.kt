@@ -5,11 +5,13 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
+import android.media.projection.MediaProjectionManager
 import android.graphics.Color
 import android.content.res.ColorStateList
 import android.widget.Button
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -22,6 +24,18 @@ import androidx.core.content.ContextCompat
 class MainActivity : AppCompatActivity() {
 
     private lateinit var bubbleButton: Button
+
+    // Register before the activity is started so Android can restore the
+    // result callback correctly if the activity is recreated during consent.
+    private val screenCaptureConsentLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == RESULT_OK && result.data != null) {
+            startBubbleMode(result.resultCode, result.data)
+        } else {
+            startBubbleMode()
+        }
+    }
 
     private val serviceStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -78,6 +92,8 @@ class MainActivity : AppCompatActivity() {
 
             if (ChatHeadService.isRunning) {
 
+                ScreenReader.stop(this)
+
                 stopService(
                     Intent(this, ChatHeadService::class.java)
                 )
@@ -94,18 +110,12 @@ class MainActivity : AppCompatActivity() {
             } else {
 
                 try {
-
-                    startService(
-                        Intent(this, ChatHeadService::class.java)
+                    val projectionManager = getSystemService(
+                        MEDIA_PROJECTION_SERVICE
+                    ) as MediaProjectionManager
+                    screenCaptureConsentLauncher.launch(
+                        projectionManager.createScreenCaptureIntent()
                     )
-
-                    Toast.makeText(
-                        this,
-                        "Bubble Mode activated",
-                        Toast.LENGTH_SHORT
-                    ).show()
-
-                    finish()
 
                 } catch (e: Exception) {
 
@@ -118,6 +128,42 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+    }
+
+    /** Starts Bubble Mode; capture starts only when the consent data is present. */
+    private fun startBubbleMode(resultCode: Int? = null, resultData: Intent? = null) {
+        try {
+            startService(Intent(this, ChatHeadService::class.java))
+        } catch (e: Exception) {
+            Toast.makeText(
+                this,
+                "Service error: ${e.message}",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+
+        if (resultCode != null && resultData != null) {
+            try {
+                ScreenReader.start(this, resultCode, resultData)
+                Toast.makeText(this, "Bubble Mode activated", Toast.LENGTH_SHORT).show()
+            } catch (_: Exception) {
+                // Bubble Mode remains useful even if the capture service cannot start.
+                ScreenReader.stop(this)
+                Toast.makeText(
+                    this,
+                    "Bubble Mode activated. Screen Read is unavailable.",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        } else {
+            Toast.makeText(
+                this,
+                "Bubble Mode activated. Screen Read is unavailable.",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+        finish()
     }
 
     override fun onStart() {
