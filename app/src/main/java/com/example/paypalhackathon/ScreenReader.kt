@@ -10,7 +10,7 @@ import java.util.concurrent.CopyOnWriteArraySet
 /**
  * Public entry point for the screen capture component.
  *
- * Bitmaps returned by [getLatestFrame] and [cropLatestFrame] are caller-owned
+ * Bitmaps returned by [getLatestFrame] and the crop methods are caller-owned
  * copies. Frame listeners also receive a fresh caller-owned copy for each
  * callback. Callers may retain, change, or recycle their copies without
  * affecting ScreenReader's latest frame or another listener.
@@ -71,37 +71,64 @@ object ScreenReader {
         } ?: return null
 
         try {
-            val requested = Rect(rectangle)
-            if (requested.width() <= 0 || requested.height() <= 0) return null
-
-            val left = (requested.left.toDouble() * source.width / coordinateWidth)
-                .toInt().coerceIn(0, source.width)
-            val top = (requested.top.toDouble() * source.height / coordinateHeight)
-                .toInt().coerceIn(0, source.height)
-            val right = (requested.right.toDouble() * source.width / coordinateWidth)
-                .toInt().coerceIn(0, source.width)
-            val bottom = (requested.bottom.toDouble() * source.height / coordinateHeight)
-                .toInt().coerceIn(0, source.height)
-
-            if (right <= left || bottom <= top) return null
-            val crop = Bitmap.createBitmap(source, left, top, right - left, bottom - top)
-            // Android may return source for a full-frame crop. Preserve the
-            // ownership contract by returning a distinct bitmap before cleanup.
-            return if (crop === source) {
-                crop.copy(Bitmap.Config.ARGB_8888, true)
-            } else {
-                crop
-            }
+            return cropFrame(source, rectangle, coordinateWidth, coordinateHeight)
         } finally {
             // This is a private snapshot created for cropping, never exposed.
             source.recycle()
         }
     }
 
+    /**
+     * Crops a caller-owned, stable frame without modifying or recycling it.
+     *
+     * [rectangle] is expressed in a [coordinateWidth] x [coordinateHeight]
+     * coordinate space. The optional offsets locate the rectangle's origin in
+     * full-display coordinates, so a view that starts below a system inset can
+     * map its local selection into the captured display. The returned
+     * bitmap is always a distinct caller-owned bitmap, including full-frame
+     * selections.
+     */
+    fun cropFrame(
+        source: Bitmap,
+        rectangle: Rect,
+        coordinateWidth: Int,
+        coordinateHeight: Int,
+        coordinateOffsetX: Int = 0,
+        coordinateOffsetY: Int = 0
+    ): Bitmap? {
+        if (source.isRecycled || coordinateWidth <= 0 || coordinateHeight <= 0) return null
+        if (rectangle.width() <= 0 || rectangle.height() <= 0) return null
+
+        val left = kotlin.math.floor(
+            (rectangle.left.toDouble() + coordinateOffsetX) * source.width / coordinateWidth
+        ).toInt().coerceIn(0, source.width)
+        val top = kotlin.math.floor(
+            (rectangle.top.toDouble() + coordinateOffsetY) * source.height / coordinateHeight
+        ).toInt().coerceIn(0, source.height)
+        val right = kotlin.math.ceil(
+            (rectangle.right.toDouble() + coordinateOffsetX) * source.width / coordinateWidth
+        ).toInt().coerceIn(0, source.width)
+        val bottom = kotlin.math.ceil(
+            (rectangle.bottom.toDouble() + coordinateOffsetY) * source.height / coordinateHeight
+        ).toInt().coerceIn(0, source.height)
+
+        if (right <= left || bottom <= top) return null
+        val crop = Bitmap.createBitmap(source, left, top, right - left, bottom - top)
+        return if (crop === source) {
+            crop.copy(Bitmap.Config.ARGB_8888, false)
+        } else {
+            crop
+        }
+    }
+
     /** Internal service entry point. Stored frames are immutable by convention. */
     internal fun publishFrame(frame: Bitmap) {
         synchronized(lock) {
+            val previous = latestFrame
             latestFrame = frame
+            if (previous !== frame && previous != null && !previous.isRecycled) {
+                previous.recycle()
+            }
         }
 
         // Invoke listeners away from the ImageReader callback thread. Each gets
@@ -124,7 +151,8 @@ object ScreenReader {
     /** Clears the current frame when the capture session ends. */
     internal fun clearLatestFrame() {
         synchronized(lock) {
-            // Do not recycle: a concurrent copy operation may still be reading it.
+            // All copies of the stored frame are made under this same lock.
+            latestFrame?.takeIf { !it.isRecycled }?.recycle()
             latestFrame = null
         }
     }

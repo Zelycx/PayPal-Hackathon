@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.res.ColorStateList
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.media.projection.MediaProjectionManager
 import android.net.Uri
@@ -12,6 +13,8 @@ import android.os.Bundle
 import android.provider.Settings
 import android.view.View
 import android.widget.Button
+import android.widget.EditText
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
@@ -23,8 +26,11 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.example.paypalhackathon.data.BackendApiClient
+import com.example.paypalhackathon.data.PurchaseBudgetInput
+import com.example.paypalhackathon.data.PurchaseBudgetParser
 import com.example.paypalhackathon.data.ShoppingResponse
 import com.example.paypalhackaton.ChatHeadService
+import java.util.Locale
 
 class MainActivity : AppCompatActivity() {
 
@@ -36,8 +42,17 @@ class MainActivity : AppCompatActivity() {
     private lateinit var apiStatus: TextView
     private lateinit var apiResult: TextView
     private lateinit var apiProgress: ProgressBar
+    private lateinit var purchaseSection: LinearLayout
+    private lateinit var purchasePreview: ImageView
+    private lateinit var purchaseBudgetAmount: EditText
+    private lateinit var purchaseBudgetCurrency: EditText
+    private lateinit var analyzePurchaseButton: Button
+    private lateinit var cancelPurchaseButton: Button
     private val apiClient by lazy { BackendApiClient.get(applicationContext) }
     private var requestInProgress = false
+    private var purchaseAnalysisActive = false
+    private var purchaseCancellationRequested = false
+    private var selectedPurchaseBitmap: Bitmap? = null
 
     private val screenshotPicker = registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         if (uri == null) {
@@ -84,8 +99,19 @@ class MainActivity : AppCompatActivity() {
         apiStatus = findViewById(R.id.api_status)
         apiResult = findViewById(R.id.api_result)
         apiProgress = findViewById(R.id.api_progress)
+        purchaseSection = findViewById(R.id.purchase_section)
+        purchasePreview = findViewById(R.id.purchase_preview)
+        purchaseBudgetAmount = findViewById(R.id.purchase_budget_amount)
+        purchaseBudgetCurrency = findViewById(R.id.purchase_budget_currency)
+        analyzePurchaseButton = findViewById(R.id.analyze_purchase_button)
+        cancelPurchaseButton = findViewById(R.id.cancel_purchase_button)
         updateButton()
         bubbleButton.setOnClickListener { toggleBubbleMode() }
+        findViewById<Button>(R.id.saved_image_button).setOnClickListener {
+            openScreenshotPicker()
+        }
+        analyzePurchaseButton.setOnClickListener { analyzeSelectedPurchase() }
+        cancelPurchaseButton.setOnClickListener { cancelPurchaseAnalysis() }
 
         menuButton.setOnClickListener {
             val opening = menuPanel.visibility != View.VISIBLE
@@ -100,7 +126,7 @@ class MainActivity : AppCompatActivity() {
             apiClient.ensureGuestSession { result ->
                 if (isFinishing || isDestroyed || requestInProgress) return@ensureGuestSession
                 result.onSuccess {
-                    setStatus("Guest session ready. Choose a screenshot with the selector or open PayPal Sandbox.")
+                    setStatus("Guest session ready. Choose a saved screenshot or open PayPal Sandbox.")
                 }.onFailure {
                     setStatus("Backend unavailable: " + (it.message ?: "could not start a guest session."))
                 }
@@ -180,7 +206,7 @@ class MainActivity : AppCompatActivity() {
     private fun handleAction(action: String?) {
         when (action) {
             ACTION_SELECT_SCREENSHOT -> openScreenshotPicker()
-            ACTION_OPEN_SHOPPING -> showCachedShoppingResults()
+            ACTION_OPEN_SHOPPING -> openShoppingAssistant()
             ACTION_OPEN_WALLET -> loadSandboxWallet()
             ACTION_TOGGLE_BUBBLE -> toggleBubbleMode()
             else -> Unit
@@ -217,12 +243,97 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun openScreenshotPicker() {
+        if (requestInProgress) return
         setStatus("Choose a saved JPEG, PNG, or WebP shopping screenshot.")
         screenshotPicker.launch("image/*")
     }
 
+    /** The cart action opens this assistant view and transfers the confirmed crop to the Activity. */
+    private fun openShoppingAssistant() {
+        val confirmedCrop = SelectedScreenRegion.takeConfirmedBitmap()
+        if (confirmedCrop == null) {
+            showCachedShoppingResults()
+            return
+        }
+        val previous = selectedPurchaseBitmap
+        purchasePreview.setImageDrawable(null)
+        if (previous !== confirmedCrop && previous != null && !previous.isRecycled) previous.recycle()
+        selectedPurchaseBitmap = confirmedCrop
+        purchasePreview.setImageBitmap(confirmedCrop)
+        purchaseSection.visibility = View.VISIBLE
+        analyzePurchaseButton.text = "Analyze Purchase"
+        analyzePurchaseButton.isEnabled = true
+        apiResult.text = ""
+        setStatus("Selected crop ready. Set an optional one-time spending limit, then tap Analyze Purchase.")
+    }
+
+    private fun analyzeSelectedPurchase() {
+        if (requestInProgress) return
+        val bitmap = selectedPurchaseBitmap
+        if (bitmap == null || bitmap.isRecycled || bitmap.width <= 0 || bitmap.height <= 0) {
+            setStatus("No usable crop is available. Select a screen region again.")
+            return
+        }
+
+        val amountText = purchaseBudgetAmount.text.toString().trim()
+        val currencyText = purchaseBudgetCurrency.text.toString().trim().uppercase(Locale.ROOT)
+        val budget = try {
+            PurchaseBudgetParser.parse(amountText, currencyText)
+        } catch (error: IllegalArgumentException) {
+            setStatus(error.message ?: "Check the optional spending limit.")
+            return
+        }
+
+        apiResult.text = ""
+        purchaseAnalysisActive = true
+        purchaseCancellationRequested = false
+        setBusy(true, "Identifying products and calculating the purchase…")
+        apiClient.analyzePurchase(bitmap, budget) { result ->
+            if (isFinishing || isDestroyed) {
+                if (selectedPurchaseBitmap === bitmap) selectedPurchaseBitmap = null
+                if (!bitmap.isRecycled) bitmap.recycle()
+                return@analyzePurchase
+            }
+            if (purchaseCancellationRequested) {
+                purchaseCancellationRequested = false
+                purchaseAnalysisActive = false
+                setBusy(false)
+                setStatus("Analysis cancelled. The confirmed crop is still available to retry.")
+                return@analyzePurchase
+            }
+            purchaseAnalysisActive = false
+            setBusy(false)
+            result.onSuccess { response ->
+                purchasePreview.setImageDrawable(null)
+                if (selectedPurchaseBitmap === bitmap) selectedPurchaseBitmap = null
+                if (!bitmap.isRecycled) bitmap.recycle()
+                purchaseSection.visibility = View.GONE
+                renderShopping(response)
+                val evaluation = response.purchaseEvaluation
+                if (evaluation == null) {
+                    setStatus("Shopping analysis completed, but the backend did not return a financial evaluation. Results are retained.")
+                    apiResult.append("\n\nFinancial evaluation unavailable: the backend response contained no purchase evaluation.")
+                } else {
+                    setEvaluationStatus(evaluation)
+                }
+            }.onFailure { error ->
+                analyzePurchaseButton.text = "Retry Analysis"
+                setStatus(error.message ?: "Purchase analysis failed. The selected crop is still available to retry.")
+            }
+        }
+    }
+
+    private fun cancelPurchaseAnalysis() {
+        if (!purchaseAnalysisActive || !requestInProgress) return
+        purchaseCancellationRequested = true
+        apiClient.cancelPurchaseAnalysis()
+        setBusy(true, "Cancelling purchase analysis…")
+        cancelPurchaseButton.visibility = View.GONE
+    }
+
     private fun analyzeScreenshot(uri: Uri) {
         if (requestInProgress) return
+        releaseSelectedPurchaseCrop()
         setBusy(true, "Analyzing screenshot…")
         apiResult.text = ""
         apiClient.analyzeShoppingImage(uri) { result ->
@@ -238,10 +349,18 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun releaseSelectedPurchaseCrop() {
+        if (::purchasePreview.isInitialized) purchasePreview.setImageDrawable(null)
+        val previous = selectedPurchaseBitmap
+        selectedPurchaseBitmap = null
+        if (previous != null && !previous.isRecycled) previous.recycle()
+        if (::purchaseSection.isInitialized) purchaseSection.visibility = View.GONE
+    }
+
     private fun showCachedShoppingResults() {
         val response = apiClient.cachedShoppingResponse()
         if (response == null) {
-            setStatus("No shopping results yet. Use the selector button to choose a saved screenshot.")
+            setStatus("No shopping results yet. Choose a saved screenshot from the button above.")
             apiResult.text = ""
             return
         }
@@ -278,11 +397,36 @@ class MainActivity : AppCompatActivity() {
         requestInProgress = busy
         apiProgress.visibility = if (busy) View.VISIBLE else View.GONE
         bubbleButton.isEnabled = !busy
+        analyzePurchaseButton.isEnabled = !busy
+        cancelPurchaseButton.visibility = if (busy && purchaseAnalysisActive) View.VISIBLE else View.GONE
+        findViewById<Button>(R.id.saved_image_button).isEnabled = !busy
         message?.let(::setStatus)
     }
 
     private fun setStatus(message: String) {
         apiStatus.text = message
+        apiStatus.setTextColor(Color.WHITE)
+    }
+
+    private fun setEvaluationStatus(evaluation: com.example.paypalhackathon.data.PurchaseEvaluation) {
+        val color = when (evaluation.status) {
+            "WITHIN_BUDGET_AND_BALANCE", "WITHIN_BUDGET", "WITHIN_BALANCE" -> Color.rgb(120, 220, 155)
+            "OVER_BUDGET", "INSUFFICIENT_BALANCE", "BOTH_LIMITS_EXCEEDED" -> Color.rgb(255, 115, 115)
+            "CURRENCY_MISMATCH" -> Color.rgb(255, 202, 105)
+            else -> Color.rgb(255, 210, 125)
+        }
+        apiStatus.text = "${evaluation.displayStatus()} · PayPal Sandbox · advisory only"
+        apiStatus.setTextColor(color)
+    }
+
+    override fun onDestroy() {
+        if (purchaseAnalysisActive) apiClient.cancelPurchaseAnalysis()
+        if (::purchasePreview.isInitialized) purchasePreview.setImageDrawable(null)
+        if (!requestInProgress) {
+            selectedPurchaseBitmap?.let { if (!it.isRecycled) it.recycle() }
+            selectedPurchaseBitmap = null
+        }
+        super.onDestroy()
     }
 
     private fun updateButton() {

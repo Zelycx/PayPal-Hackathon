@@ -2,6 +2,7 @@ package com.example.paypalhackathon.data
 
 import android.content.Context
 import android.database.Cursor
+import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
@@ -37,6 +38,15 @@ class BackendApiClient private constructor(context: Context) {
     private val executor = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
     private val baseUrl = BuildConfig.BACKEND_BASE_URL.trimEnd('/')
+    private val purchaseCancellationLock = Any()
+
+    @Volatile
+    private var purchaseCancellationRequested = false
+
+    private var purchaseRequestInProgress = false
+
+    @Volatile
+    private var activePurchaseConnection: HttpURLConnection? = null
 
     @Volatile
     private var cachedShoppingResponse: ShoppingResponse? = null
@@ -59,6 +69,71 @@ class BackendApiClient private constructor(context: Context) {
         }
     }
 
+    /** Encodes and uploads the explicitly confirmed crop on the API executor. The caller retains bitmap ownership. */
+    fun analyzePurchase(
+        bitmap: Bitmap,
+        budget: PurchaseBudgetInput?,
+        callback: (Result<ShoppingResponse>) -> Unit,
+    ) {
+        val accepted = synchronized(purchaseCancellationLock) {
+            if (purchaseRequestInProgress) {
+                false
+            } else {
+                purchaseRequestInProgress = true
+                purchaseCancellationRequested = false
+                true
+            }
+        }
+        if (!accepted) {
+            mainHandler.post {
+                callback(Result.failure(BackendApiException(null, "A purchase analysis is already running.")))
+            }
+            return
+        }
+        submit(callback) {
+            try {
+                checkPurchaseNotCancelled()
+                if (bitmap.isRecycled || bitmap.width <= 0 || bitmap.height <= 0) {
+                    throw BackendApiException(null, "The selected screen region is no longer available. Select it again.")
+                }
+                val output = ByteArrayOutputStream()
+                val encoded = try {
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, 90, output)
+                } catch (_: Exception) {
+                    false
+                }
+                if (!encoded || output.size() == 0) {
+                    throw BackendApiException(null, "The selected screen region could not be encoded. Select it again.")
+                }
+                if (output.size() > MAX_UPLOAD_BYTES) {
+                    throw BackendApiException(413, "The selected screen region is larger than the 10 MB upload limit.")
+                }
+                checkPurchaseNotCancelled()
+                val response = protectedRequest(purchaseAnalysis = true) { token ->
+                    uploadShoppingImage(output.toByteArray(), "image/jpeg", token, budget, includePurchaseEvaluation = true)
+                }
+                val parsed = ShoppingResponse.parse(response)
+                cachedShoppingResponse = parsed
+                parsed
+            } finally {
+                synchronized(purchaseCancellationLock) {
+                    purchaseRequestInProgress = false
+                    purchaseCancellationRequested = false
+                    activePurchaseConnection = null
+                }
+            }
+        }
+    }
+
+    /** Best-effort cancellation for the active selected-crop request; the crop remains caller-owned for retry. */
+    fun cancelPurchaseAnalysis() {
+        val connection = synchronized(purchaseCancellationLock) {
+            purchaseCancellationRequested = true
+            activePurchaseConnection
+        }
+        connection?.disconnect()
+    }
+
     fun loadPayPalSandbox(callback: (Result<WalletDashboard>) -> Unit) {
         submit(callback) {
             val connection = protectedRequest { token -> requestJson("/paypal/connection", "GET", token) }
@@ -67,6 +142,29 @@ class BackendApiClient private constructor(context: Context) {
                 requestJson("/paypal/transactions?days=30&page=1&page_size=100", "GET", token)
             }
             WalletDashboard(connection, balances, transactions)
+        }
+    }
+
+    fun sendShoppingChat(
+        message: String,
+        context: JSONObject,
+        history: List<ShoppingChatTurn>,
+        callback: (Result<String>) -> Unit,
+    ) {
+        val payload = JSONObject()
+            .put("message", message)
+            .put("context", context)
+            .put("history", org.json.JSONArray().apply {
+                history.takeLast(8).forEach { turn ->
+                    put(JSONObject().put("role", turn.role).put("content", turn.content))
+                }
+            })
+        submit(callback) {
+            val response = protectedRequest { token ->
+                requestJson("/shopping/chat", "POST", token, payload.toString())
+            }
+            response.optString("answer").takeIf(String::isNotBlank)
+                ?: throw BackendApiException(null, "The assistant returned an empty response.")
         }
     }
 
@@ -81,8 +179,12 @@ class BackendApiClient private constructor(context: Context) {
         }
     }
 
-    private fun protectedRequest(request: (String) -> JSONObject): JSONObject {
-        var token = sessionStore.readToken() ?: startGuestSession()
+    private fun protectedRequest(
+        purchaseAnalysis: Boolean = false,
+        request: (String) -> JSONObject,
+    ): JSONObject {
+        checkPurchaseNotCancelled(purchaseAnalysis)
+        var token = sessionStore.readToken() ?: startGuestSession(purchaseAnalysis)
         try {
             return request(token)
         } catch (error: BackendApiException) {
@@ -92,7 +194,8 @@ class BackendApiClient private constructor(context: Context) {
         // The backend session store expires tokens. Discard a rejected token,
         // create a fresh guest session, and retry a protected request once.
         sessionStore.clear()
-        token = startGuestSession()
+        token = startGuestSession(purchaseAnalysis)
+        checkPurchaseNotCancelled(purchaseAnalysis)
         return try {
             request(token)
         } catch (error: BackendApiException) {
@@ -104,36 +207,56 @@ class BackendApiClient private constructor(context: Context) {
         }
     }
 
-    private fun startGuestSession(): String {
+    private fun startGuestSession(purchaseAnalysis: Boolean = false): String {
         val payload = JSONObject().put("display_name", "Guest")
-        val response = requestJson("/session/start", "POST", body = payload.toString())
+        val response = requestJson(
+            "/session/start",
+            "POST",
+            body = payload.toString(),
+            purchaseAnalysis = purchaseAnalysis,
+        )
         val token = response.optString("access_token").takeIf { it.isNotBlank() }
             ?: throw BackendApiException(null, "The backend did not return a guest session token.")
         sessionStore.writeToken(token)
         return token
     }
 
-    private fun requestJson(path: String, method: String, token: String? = null, body: String? = null): JSONObject {
+    private fun requestJson(
+        path: String,
+        method: String,
+        token: String? = null,
+        body: String? = null,
+        purchaseAnalysis: Boolean = false,
+    ): JSONObject {
         val bodyBytes = body?.toByteArray(StandardCharsets.UTF_8)
-        val result = executeRequest(path, method, token, bodyBytes, "application/json; charset=utf-8")
+        val result = executeRequest(
+            path,
+            method,
+            token,
+            bodyBytes,
+            "application/json; charset=utf-8",
+            purchaseAnalysis = purchaseAnalysis,
+        )
         return result
     }
 
-    private fun uploadShoppingImage(bytes: ByteArray, mimeType: String, token: String): JSONObject {
+    private fun uploadShoppingImage(
+        bytes: ByteArray,
+        mimeType: String,
+        token: String,
+        budget: PurchaseBudgetInput? = null,
+        includePurchaseEvaluation: Boolean = false,
+    ): JSONObject {
         val boundary = "PayPalHackathon-${System.nanoTime()}"
         val result = executeRequest(
             path = "/shopping/analyze",
             method = "POST",
             token = token,
             contentType = "multipart/form-data; boundary=$boundary",
+            readTimeoutMs = if (includePurchaseEvaluation) PURCHASE_EVALUATION_TIMEOUT_MS else READ_TIMEOUT_MS,
+            purchaseAnalysis = includePurchaseEvaluation,
         ) { output ->
-            val writer = output.writer(StandardCharsets.UTF_8)
-            writer.append("--$boundary\r\n")
-            writer.append("Content-Disposition: form-data; name=\"image\"; filename=\"shopping-screenshot.${fileExtension(mimeType)}\"\r\n")
-            writer.append("Content-Type: $mimeType\r\n\r\n")
-            writer.flush()
-            output.write(bytes)
-            output.write("\r\n--$boundary--\r\n".toByteArray(StandardCharsets.UTF_8))
+            writeShoppingMultipart(output, boundary, bytes, mimeType, includePurchaseEvaluation, budget)
         }
         return result
     }
@@ -144,6 +267,8 @@ class BackendApiClient private constructor(context: Context) {
         token: String? = null,
         body: ByteArray? = null,
         contentType: String? = null,
+        readTimeoutMs: Int = READ_TIMEOUT_MS,
+        purchaseAnalysis: Boolean = false,
         writeBody: ((OutputStream) -> Unit)? = null,
     ): JSONObject {
         val connection = try {
@@ -152,10 +277,21 @@ class BackendApiClient private constructor(context: Context) {
             throw BackendApiException(null, "The configured backend URL is invalid.")
         }
 
+        if (purchaseAnalysis) {
+            synchronized(purchaseCancellationLock) {
+                if (purchaseCancellationRequested) {
+                    connection.disconnect()
+                    throw BackendApiException(null, "Purchase analysis was cancelled.")
+                }
+                activePurchaseConnection = connection
+            }
+        }
+
         try {
+            checkPurchaseNotCancelled(purchaseAnalysis)
             connection.requestMethod = method
             connection.connectTimeout = CONNECT_TIMEOUT_MS
-            connection.readTimeout = READ_TIMEOUT_MS
+            connection.readTimeout = readTimeoutMs
             connection.useCaches = false
             connection.setRequestProperty("Accept", "application/json")
             if (token != null) connection.setRequestProperty("Authorization", "Bearer $token")
@@ -195,7 +331,18 @@ class BackendApiClient private constructor(context: Context) {
         } catch (error: Exception) {
             throw BackendApiException(null, "The backend response could not be read.")
         } finally {
+            if (purchaseAnalysis) {
+                synchronized(purchaseCancellationLock) {
+                    if (activePurchaseConnection === connection) activePurchaseConnection = null
+                }
+            }
             connection.disconnect()
+        }
+    }
+
+    private fun checkPurchaseNotCancelled(purchaseAnalysis: Boolean = true) {
+        if (purchaseAnalysis && purchaseCancellationRequested) {
+            throw BackendApiException(null, "Purchase analysis was cancelled.")
         }
     }
 
@@ -255,12 +402,6 @@ class BackendApiClient private constructor(context: Context) {
         "png" -> "image/png"
         "webp" -> "image/webp"
         else -> null
-    }
-
-    private fun fileExtension(mimeType: String): String = when (mimeType) {
-        "image/jpeg" -> "jpg"
-        "image/png" -> "png"
-        else -> "webp"
     }
 
     private class EncryptedSessionStore(context: Context) {
@@ -329,6 +470,7 @@ class BackendApiClient private constructor(context: Context) {
     companion object {
         private const val CONNECT_TIMEOUT_MS = 10_000
         private const val READ_TIMEOUT_MS = 120_000
+        private const val PURCHASE_EVALUATION_TIMEOUT_MS = 130_000
         private const val MAX_UPLOAD_BYTES = 10 * 1024 * 1024
         private val SUPPORTED_IMAGE_TYPES = setOf("image/jpeg", "image/png", "image/webp")
 
