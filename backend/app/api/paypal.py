@@ -72,13 +72,21 @@ async def read_paypal_transactions(
     days: int = Query(default=30, ge=1, le=31),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=100, ge=1, le=500),
+    start_date: str | None = Query(default=None),
+    end_date: str | None = Query(default=None),
+    transaction_id: str | None = Query(default=None),
+    balance_affecting_records_only: bool = Query(default=True),
     session: dict = Depends(require_session)
 ):
     try:
         transactions = await get_paypal_transactions(
             days=days,
             page=page,
-            page_size=page_size
+            page_size=page_size,
+            start_date=start_date,
+            end_date=end_date,
+            transaction_id=transaction_id,
+            balance_affecting_records_only=balance_affecting_records_only,
         )
 
         return {

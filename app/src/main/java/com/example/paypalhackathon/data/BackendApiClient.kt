@@ -151,20 +151,17 @@ class BackendApiClient private constructor(context: Context) {
         history: List<ShoppingChatTurn>,
         callback: (Result<String>) -> Unit,
     ) {
-        val payload = JSONObject()
-            .put("message", message)
-            .put("context", context)
-            .put("history", org.json.JSONArray().apply {
-                history.takeLast(8).forEach { turn ->
-                    put(JSONObject().put("role", turn.role).put("content", turn.content))
-                }
-            })
+        val payload = try {
+            createShoppingChatPayload(message, context, history)
+        } catch (error: Exception) {
+            mainHandler.post { callback(Result.failure(toApiException(error))) }
+            return
+        }
         submit(callback) {
             val response = protectedRequest { token ->
                 requestJson("/shopping/chat", "POST", token, payload.toString())
             }
-            response.optString("answer").takeIf(String::isNotBlank)
-                ?: throw BackendApiException(null, "The assistant returned an empty response.")
+            parseShoppingChatAnswer(response)
         }
     }
 

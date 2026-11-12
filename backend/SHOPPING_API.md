@@ -104,9 +104,9 @@ The optional `ai_opinion` is generated after the deterministic evaluation with t
 
 A valid non-shopping screenshot returns HTTP 200, `screen_type: "unknown"`, an empty item list, and a warning.
 
-## Contextual assistant chat
+## Finance assistant chat
 
-POST /shopping/chat accepts the guest Bearer token, one question, up to eight prior chat turns, and a validated summary of extracted product fields and the current purchase evaluation. It sends only those fields and the conversation to the configured Groq model. The screenshot, PayPal credentials, transaction history, and unrelated Sandbox currencies are not sent. The model is instructed to treat supplied text as untrusted, avoid financial arithmetic, and state uncertainty. The endpoint returns an answer; Groq failures are returned as HTTP errors rather than fabricated responses. The same backend GROQ_API_KEY and configured model used by Shopping AI are required.
+`POST /shopping/chat` accepts the guest Bearer token, one question, up to eight prior chat turns, and a validated summary of extracted product fields and the current purchase evaluation. Android sends `{ "message": "...", "context": {}, "history": [{"role":"user|assistant","content":"..."}] }` and receives `{ "answer": "..." }`. For relevant PayPal questions, the backend freshly retrieves a minimized balance or transaction snapshot from its configured Sandbox app before calling Groq. The screenshot, PayPal credentials, access tokens, account ID, and unrelated records are not sent. The assistant can answer general budgeting, saving, spending, affordability, and financial-concept questions. It must label data as the configured Sandbox account, distinguish the reported balance types and timestamps, repeat deterministic server calculations as supplied, avoid inventing financial data or unsupported arithmetic, and state uncertainty. See [PayPal data availability and limitations](PAYPAL_DATA_ACCESS.md). Groq failures are returned as HTTP errors rather than fabricated responses. The same backend `GROQ_API_KEY` and configured model used by Shopping AI are required.
 
 ## Product discovery status
 

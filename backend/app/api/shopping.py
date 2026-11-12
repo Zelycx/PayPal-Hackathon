@@ -21,6 +21,7 @@ from app.services.purchase_evaluation import (
     PurchaseEvaluationService,
     get_purchase_evaluation_service,
 )
+from app.services.paypal_chat_data import retrieve_paypal_chat_data
 from app.services.shopping_service import (
     MAX_UPLOAD_BYTES,
     GroqVisionProvider,
@@ -46,12 +47,14 @@ def _http_error(error: ShoppingServiceError) -> HTTPException:
 @router.post(
     "/chat",
     response_model=ShoppingChatResponse,
-    summary="Ask a contextual shopping question",
+    summary="Ask a finance question with relevant PayPal Sandbox data",
 )
 async def shopping_chat(
     payload: ShoppingChatRequest,
     session: dict = Depends(require_session),
 ) -> ShoppingChatResponse:
+    # This guest token authorizes use of this app's configured Sandbox
+    # integration; it is not a PayPal user identity or account link.
     _ = session
     question = payload.message.strip()
     if not question:
@@ -71,6 +74,29 @@ async def shopping_chat(
 
     history = [turn.model_dump() for turn in payload.history[-8:]]
     try:
+        paypal_context = await retrieve_paypal_chat_data(question, history)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except RuntimeError as error:
+        logger.warning("shopping_chat_paypal_unavailable type=%s", type(error).__name__)
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "code": "paypal_data_unavailable",
+                "message": "PayPal Sandbox data could not be retrieved. No balance or transaction values were supplied to the assistant.",
+            },
+        ) from error
+    except Exception as error:
+        logger.warning("shopping_chat_paypal_failed type=%s", type(error).__name__)
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "code": "paypal_data_unavailable",
+                "message": "PayPal Sandbox data could not be retrieved. No balance or transaction values were supplied to the assistant.",
+            },
+        ) from error
+
+    try:
         async with _chat_semaphore:
             answer = await GroqVisionProvider(settings.api_key).answer_purchase_question(
                 question=question,
@@ -78,6 +104,7 @@ async def shopping_chat(
                 history=history,
                 model=settings.vision_model,
                 timeout_seconds=min(settings.timeout_seconds, 45.0),
+                paypal_context=paypal_context,
             )
         return ShoppingChatResponse(answer=answer)
     except ShoppingServiceError as error:

@@ -1,5 +1,6 @@
 
 import os
+import re
 import time
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
@@ -119,9 +120,44 @@ async def get_paypal_balances():
         "last_refresh_time": data.get("last_refresh_time"),
     }
 
-async def get_paypal_transactions(days: int = 30, page: int = 1, page_size: int = 100):
-    if not 1 <= days <= 31:
-        raise ValueError("Days must be between 1 and 31.")
+async def get_paypal_transactions(
+    days: int = 30,
+    page: int = 1,
+    page_size: int = 100,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    transaction_id: str | None = None,
+    include_payer_info: bool = False,
+    balance_affecting_records_only: bool = True,
+):
+    if (start_date is None) != (end_date is None):
+        raise ValueError("Both start_date and end_date are required for a date range.")
+    if start_date is not None and end_date is not None:
+        try:
+            start = datetime.fromisoformat(start_date.replace("Z", "+00:00"))
+            end = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
+        except ValueError as error:
+            raise ValueError("Transaction dates must use RFC3339 format.") from error
+        if start.tzinfo is None or end.tzinfo is None:
+            raise ValueError("Transaction dates must include a timezone.")
+        if end <= start:
+            raise ValueError("Transaction date range end must be later than start.")
+        if end - start > timedelta(days=31):
+            raise ValueError("Transaction date range cannot exceed 31 days.")
+        start_string = start.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        end_string = end.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    else:
+        if not 1 <= days <= 31:
+            raise ValueError("Days must be between 1 and 31.")
+        end_date_value = datetime.now(timezone.utc)
+        start_date_value = end_date_value - timedelta(days=days)
+        start_string = start_date_value.strftime("%Y-%m-%dT%H:%M:%SZ")
+        end_string = end_date_value.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    if transaction_id is not None and not (
+        len(transaction_id) in {17, 19} and re.fullmatch(r"[A-Za-z0-9]+", transaction_id)
+    ):
+        raise ValueError("PayPal transaction IDs must contain 17 or 19 letters or numbers.")
 
     if page < 1:
         raise ValueError("Page must be at least 1.")
@@ -131,13 +167,6 @@ async def get_paypal_transactions(days: int = 30, page: int = 1, page_size: int 
 
     token = await get_access_token()
 
-    end_date = datetime.now(timezone.utc)
-    start_date = end_date - timedelta(days=days)
-
-    # PayPal expects RFC3339 timestamps with seconds.
-    start_string = start_date.strftime("%Y-%m-%dT%H:%M:%SZ")
-    end_string = end_date.strftime("%Y-%m-%dT%H:%M:%SZ")
-
     url = f"{PAYPAL_BASE_URL}/v1/reporting/transactions"
 
     params = {
@@ -146,8 +175,12 @@ async def get_paypal_transactions(days: int = 30, page: int = 1, page_size: int 
         "fields": "transaction_info",
         "page_size": page_size,
         "page": page,
-        "balance_affecting_records_only": "Y",
+        "balance_affecting_records_only": "Y" if balance_affecting_records_only else "N",
     }
+    if transaction_id:
+        params["transaction_id"] = transaction_id
+    if include_payer_info:
+        params["fields"] = "transaction_info,payer_info"
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.get(

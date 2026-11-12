@@ -33,8 +33,10 @@ import androidx.core.view.WindowInsetsCompat
 import com.example.paypalhackathon.data.BackendApiClient
 import com.example.paypalhackathon.data.PurchaseBudgetInput
 import com.example.paypalhackathon.data.PurchaseBudgetParser
+import com.example.paypalhackathon.data.ShoppingChatTurn
 import com.example.paypalhackathon.data.ShoppingResponse
 import com.example.paypalhackaton.ChatHeadService
+import org.json.JSONObject
 import java.util.Locale
 
 class MainActivity : AppCompatActivity() {
@@ -65,6 +67,10 @@ class MainActivity : AppCompatActivity() {
     private var purchaseAnalysisActive = false
     private var purchaseCancellationRequested = false
     private var selectedPurchaseBitmap: Bitmap? = null
+    private val chatMessagesState = mutableListOf<Pair<String, Boolean>>()
+    private val chatHistory = mutableListOf<ShoppingChatTurn>()
+    private var chatRequestInProgress = false
+    private var retryMessage: String? = null
 
     private val screenshotPicker =
         registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
@@ -144,10 +150,28 @@ class MainActivity : AppCompatActivity() {
 
         // Welcome message
         if (savedInstanceState == null) {
-            addChatMessage(
-                "Hello! Welcome to your shopping assistant. How can I help you today?",
-                false
-            )
+            addChatMessage("Hello! I’m your finance assistant. What would you like help with?", false)
+        } else {
+            retryMessage = savedInstanceState.getString(KEY_CHAT_RETRY_MESSAGE)
+            val savedMessages = savedInstanceState.getStringArrayList(KEY_CHAT_MESSAGES).orEmpty()
+            val savedRoles = savedInstanceState.getBooleanArray(KEY_CHAT_MESSAGE_ROLES)
+            savedMessages.forEachIndexed { index, text ->
+                val row = addChatMessage(text, savedRoles?.getOrNull(index) ?: false)
+                if (retryMessage != null && text.startsWith("I couldn’t reach the assistant:")) {
+                    addRetryButton(row, retryMessage!!)
+                }
+            }
+            val savedHistory = savedInstanceState.getStringArrayList(KEY_CHAT_HISTORY).orEmpty()
+            savedHistory.forEach { encoded ->
+                runCatching {
+                    val turn = JSONObject(encoded)
+                    chatHistory.add(ShoppingChatTurn(turn.getString("role"), turn.getString("content")))
+                }
+            }
+            if (retryMessage != null && savedMessages.none { it.startsWith("I couldn’t reach the assistant:") }) {
+                val row = addChatMessage("The previous request was interrupted. You can retry it.", false)
+                addRetryButton(row, retryMessage!!)
+            }
         }
 
         // Send button functionality
@@ -572,6 +596,16 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putStringArrayList(KEY_CHAT_MESSAGES, ArrayList(chatMessagesState.map { it.first }))
+        outState.putBooleanArray(KEY_CHAT_MESSAGE_ROLES, chatMessagesState.map { it.second }.toBooleanArray())
+        outState.putStringArrayList(KEY_CHAT_HISTORY, ArrayList(chatHistory.map { turn ->
+            JSONObject().put("role", turn.role).put("content", turn.content).toString()
+        }))
+        retryMessage?.let { outState.putString(KEY_CHAT_RETRY_MESSAGE, it) }
+        super.onSaveInstanceState(outState)
+    }
+
     private fun updateButton() {
         if (!::bubbleButton.isInitialized) return
 
@@ -594,75 +628,59 @@ class MainActivity : AppCompatActivity() {
     // ------------------------------------------------
 
     private fun sendChatMessage() {
+        if (chatRequestInProgress) return
         val message = chatInput.text.toString().trim()
-
         if (message.isEmpty()) return
-
-        // Display the user's message
         addChatMessage(message, true)
-
-        // Clear the input
         chatInput.text.clear()
-
-        // Get chatbot response
-        val reply = getBotReply(message)
-
-        addChatMessage(reply, false)
+        retryMessage = message
+        requestChatReply(message)
     }
 
-    private fun getBotReply(message: String): String {
-        val lowerMessage = message.lowercase()
-
-        return when {
-            lowerMessage.contains("hello") ||
-                    lowerMessage.contains("hi") -> {
-                "Hello! How can I help you today?"
-            }
-
-            lowerMessage.contains("how are you") -> {
-                "I'm doing great! Thanks for asking. What can I help you with?"
-            }
-
-            lowerMessage.contains("phone") -> {
-                "Are you looking for a new phone? Tell me your budget and preferences!"
-            }
-
-            lowerMessage.contains("laptop") -> {
-                "I can help you find a laptop. What's your budget?"
-            }
-
-            lowerMessage.contains("price") ||
-                    lowerMessage.contains("cost") -> {
-                "Which product are you interested in? I can help you with its price."
-            }
-
-            lowerMessage.contains("budget") -> {
-                "What's your budget? I'll try to help you find something suitable."
-            }
-
-            lowerMessage.contains("recommend") -> {
-                "Sure! Tell me what kind of product you're looking for and your budget."
-            }
-
-            lowerMessage.contains("help") -> {
-                "Of course! I'm here to help with your shopping needs."
-            }
-
-            lowerMessage.contains("thank") -> {
-                "You're welcome! Let me know if you need anything else."
-            }
-
-            lowerMessage.contains("bye") -> {
-                "Goodbye! Have a great day!"
-            }
-
-            else -> {
-                "I'm here to help with your shopping needs. Could you tell me more?"
+    private fun requestChatReply(message: String) {
+        chatRequestInProgress = true
+        sendButton.isEnabled = false
+        chatInput.isEnabled = false
+        val loading = addChatMessage("Thinking…", false, persist = false)
+        val context = apiClient.cachedShoppingResponse()?.toChatContextJson() ?: JSONObject()
+        val historyForRequest = chatHistory.toList()
+        apiClient.sendShoppingChat(message, context, historyForRequest) { result ->
+            if (isFinishing || isDestroyed) return@sendShoppingChat
+            chatMessages.removeView(loading)
+            chatRequestInProgress = false
+            sendButton.isEnabled = true
+            chatInput.isEnabled = true
+            result.onSuccess { answer ->
+                chatHistory.add(ShoppingChatTurn("user", message))
+                chatHistory.add(ShoppingChatTurn("assistant", answer))
+                retryMessage = null
+                addChatMessage(answer, false)
+            }.onFailure { error ->
+                val errorRow = addChatMessage(
+                    "I couldn’t reach the assistant: ${error.message ?: "Please try again."}",
+                    false,
+                )
+                addRetryButton(errorRow, message)
             }
         }
     }
 
-    private fun addChatMessage(message: String, isUser: Boolean) {
+    private fun retryChatMessage(message: String) {
+        if (chatRequestInProgress) return
+        retryMessage = message
+        requestChatReply(message)
+    }
+
+    private fun addRetryButton(row: View, message: String) {
+        val retry = Button(this).apply {
+            text = "Retry"
+            setOnClickListener { retryChatMessage(message) }
+        }
+        (row as? LinearLayout)?.addView(retry)
+    }
+
+    private fun addChatMessage(message: String, isUser: Boolean, persist: Boolean = true): View {
+        if (persist) chatMessagesState.add(message to isUser)
 
         val textView = TextView(this).apply {
             text = message
@@ -719,6 +737,7 @@ class MainActivity : AppCompatActivity() {
         chatScroll.post {
             chatScroll.fullScroll(View.FOCUS_DOWN)
         }
+        return messageContainer
     }
 
     private fun Int.dp(): Int {
@@ -739,5 +758,10 @@ class MainActivity : AppCompatActivity() {
 
         const val ACTION_TOGGLE_BUBBLE =
             "com.example.paypalhackathon.TOGGLE_BUBBLE"
+
+        private const val KEY_CHAT_MESSAGES = "chat_messages"
+        private const val KEY_CHAT_MESSAGE_ROLES = "chat_message_roles"
+        private const val KEY_CHAT_HISTORY = "chat_history"
+        private const val KEY_CHAT_RETRY_MESSAGE = "chat_retry_message"
     }
 }
