@@ -59,32 +59,6 @@ async def read_paypal_balances(
         )
 
 
-@router.get("/balances")
-async def read_paypal_balances(
-    session: dict = Depends(require_session)
-):
-    try:
-        balances = await get_paypal_balances()
-
-        return {
-            "success": True,
-            "environment": "sandbox",
-            "data": balances
-        }
-
-    except RuntimeError as error:
-        raise HTTPException(
-            status_code=502,
-            detail=str(error)
-        )
-
-    except Exception:
-        raise HTTPException(
-            status_code=502,
-            detail="Unable to retrieve PayPal balances."
-        )
-
-
 @router.get("/transactions")
 async def read_paypal_transactions(
     days: int = Query(default=30, ge=1, le=31),
