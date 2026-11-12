@@ -1,3 +1,4 @@
+
 package com.example.paypalhackathon
 
 import android.content.Intent
@@ -7,12 +8,12 @@ import android.provider.Settings
 import android.graphics.Color
 import android.content.res.ColorStateList
 import android.widget.Button
+import android.widget.LinearLayout
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
-import com.example.paypalhackathon.ChatHeadService
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.IntentFilter
@@ -22,6 +23,9 @@ import android.view.View
 class MainActivity : AppCompatActivity() {
 
     private lateinit var bubbleButton: Button
+    private lateinit var menuButton: Button
+    private lateinit var menuPanel: LinearLayout
+    private lateinit var transactionHistoryButton: Button
 
     private val serviceStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -30,6 +34,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -51,11 +56,32 @@ class MainActivity : AppCompatActivity() {
             insets
         }
 
+        // CONNECT VIEWS
         bubbleButton = findViewById(R.id.bubble_button)
+        menuButton = findViewById(R.id.menu_button)
+        menuPanel = findViewById(R.id.balance_box)
+        transactionHistoryButton = findViewById(R.id.page_switch_button)
+
+        // MENU
+        menuButton.setOnClickListener {
+            menuPanel.visibility =
+                if (menuPanel.visibility == View.VISIBLE) {
+                    View.GONE
+                } else {
+                    View.VISIBLE
+                }
+        }
+
+        // TRANSACTION HISTORY
+        transactionHistoryButton.setOnClickListener {
+            startActivity(
+                Intent(this, TransactionHistory::class.java)
+            )
+        }
 
         updateButton()
 
-
+        // BUBBLE MODE
         bubbleButton.setOnClickListener {
 
             if (!Settings.canDrawOverlays(this)) {
@@ -88,16 +114,19 @@ class MainActivity : AppCompatActivity() {
                     Toast.LENGTH_SHORT
                 ).show()
 
-                // Do not call updateButton() here.
-                // The service will notify the activity when it stops.
-
             } else {
 
                 try {
 
-                    startService(
-                        Intent(this, ChatHeadService::class.java)
-                    )
+                    // START SERVICE WITH ACTIVATION ACTION
+                    val serviceIntent = Intent(
+                        this,
+                        ChatHeadService::class.java
+                    ).apply {
+                        action = ChatHeadService.ACTION_ACTIVATE
+                    }
+
+                    startService(serviceIntent)
 
                     Toast.makeText(
                         this,
@@ -105,6 +134,7 @@ class MainActivity : AppCompatActivity() {
                         Toast.LENGTH_SHORT
                     ).show()
 
+                    // CLOSE ACTIVITY
                     finish()
 
                 } catch (e: Exception) {
@@ -117,7 +147,6 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
-
     }
 
     override fun onStart() {
@@ -130,30 +159,11 @@ class MainActivity : AppCompatActivity() {
             ContextCompat.RECEIVER_NOT_EXPORTED
         )
 
-        ChatHeadService.appInForeground = true
-
-        if (ChatHeadService.isRunning) {
-            startService(
-                Intent(this, ChatHeadService::class.java)
-                    .setAction(ChatHeadService.ACTION_APP_FOREGROUND)
-            )
-        }
-
         updateButton()
     }
 
     override fun onStop() {
-        ChatHeadService.appInForeground = false
-
-        if (ChatHeadService.isRunning) {
-            startService(
-                Intent(this, ChatHeadService::class.java)
-                    .setAction(ChatHeadService.ACTION_APP_BACKGROUND)
-            )
-        }
-
         unregisterReceiver(serviceStateReceiver)
-
         super.onStop()
     }
 
@@ -164,7 +174,6 @@ class MainActivity : AppCompatActivity() {
             updateButton()
         }
     }
-
 
     private fun updateButton() {
 
@@ -184,5 +193,4 @@ class MainActivity : AppCompatActivity() {
             "Bubble Mode: OFF"
         }
     }
-
 }
