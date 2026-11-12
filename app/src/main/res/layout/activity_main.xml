@@ -155,8 +155,7 @@
                 android:padding="8dp"
                 android:text="Choose a shopping screenshot or open PayPal Sandbox."
                 android:textColor="#E67E5A"
-                android:textSize="14sp"
-                android:visibility="gone" />
+                android:textSize="14sp" />
 
 
         </LinearLayout>
@@ -177,6 +176,99 @@
                 android:orientation="vertical"
                 android:padding="8dp">
 
+                <Button
+                    android:id="@+id/saved_image_button"
+                    android:layout_width="match_parent"
+                    android:layout_height="40dp"
+                    android:layout_marginStart="8dp"
+                    android:layout_marginEnd="8dp"
+                    android:layout_marginBottom="6dp"
+                    android:text="Choose saved screenshot"
+                    android:textAllCaps="false"
+                    android:textSize="13sp" />
+
+                <LinearLayout
+                    android:id="@+id/purchase_section"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:layout_marginEnd="8dp"
+                    android:layout_marginBottom="6dp"
+                    android:background="#252525"
+                    android:orientation="vertical"
+                    android:padding="8dp"
+                    android:visibility="gone">
+
+                    <ImageView
+                        android:id="@+id/purchase_preview"
+                        android:layout_width="match_parent"
+                        android:layout_height="76dp"
+                        android:contentDescription="Confirmed shopping screen crop"
+                        android:scaleType="fitCenter" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:paddingTop="4dp"
+                        android:text="Only this selected crop is sent to the backend and Groq for analysis. This app does not save the screenshot."
+                        android:textColor="#CCCCCC"
+                        android:textSize="11sp" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:orientation="horizontal">
+
+                        <EditText
+                            android:id="@+id/purchase_budget_amount"
+                            android:layout_width="0dp"
+                            android:layout_height="44dp"
+                            android:layout_weight="2"
+                            android:hint="Optional purchase limit"
+                            android:inputType="numberDecimal"
+                            android:paddingStart="8dp"
+                            android:paddingEnd="8dp"
+                            android:singleLine="true"
+                            android:textColor="#FFFFFF"
+                            android:textColorHint="#AAAAAA"
+                            android:textSize="13sp" />
+
+                        <EditText
+                            android:id="@+id/purchase_budget_currency"
+                            android:layout_width="0dp"
+                            android:layout_height="44dp"
+                            android:layout_marginStart="6dp"
+                            android:layout_weight="1"
+                            android:hint="Currency"
+                            android:inputType="textCapCharacters|textNoSuggestions"
+                            android:maxLength="3"
+                            android:paddingStart="8dp"
+                            android:paddingEnd="8dp"
+                            android:singleLine="true"
+                            android:textColor="#FFFFFF"
+                            android:textColorHint="#AAAAAA"
+                            android:textSize="13sp" />
+                    </LinearLayout>
+
+                    <Button
+                        android:id="@+id/analyze_purchase_button"
+                        android:layout_width="match_parent"
+                        android:layout_height="42dp"
+                        android:layout_marginTop="6dp"
+                        android:text="Analyze Purchase"
+                        android:textAllCaps="false"
+                        android:textSize="13sp" />
+
+                    <Button
+                        android:id="@+id/cancel_purchase_button"
+                        android:layout_width="match_parent"
+                        android:layout_height="38dp"
+                        android:layout_marginTop="4dp"
+                        android:text="Cancel analysis"
+                        android:textAllCaps="false"
+                        android:visibility="gone" />
+                </LinearLayout>
                 <!-- CHAT MESSAGES -->
                 <LinearLayout
                     android:id="@+id/chat_messages"

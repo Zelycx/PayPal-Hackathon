@@ -7,7 +7,7 @@ import io
 import json
 import logging
 from datetime import datetime, timedelta, timezone
-from decimal import Decimal
+from decimal import Decimal, localcontext
 from types import SimpleNamespace
 
 import pytest
@@ -399,6 +399,23 @@ def test_single_and_multiple_product_decimal_calculations():
     assert totals.items_subtotal == "1380.355"
     assert totals.items_subtotal_complete is True
     assert response.items[0].original_unit_price == "799.99"
+
+
+def test_fractional_quantity_product_and_subtotal_preserve_decimal_precision():
+    price = "123456789012345678.123456789012"
+    quantity = "123456789012.123456"
+    data = extraction(products=[
+        product(price=price, quantity=quantity),
+        product(name="Small fraction", price="0.000000000001", quantity="1"),
+    ])
+    with localcontext() as context:
+        context.prec = 80
+        expected_line = format(Decimal(price) * Decimal(quantity), "f")
+        expected_subtotal = format(Decimal(expected_line) + Decimal("0.000000000001"), "f")
+
+    response = build_public_response(ShoppingExtraction.model_validate(data))
+    assert response.items[0].line_total == expected_line
+    assert response.totals_by_currency[0].items_subtotal == expected_subtotal
 
 
 def test_listing_and_recommendation_items_are_not_counted_as_purchases():
