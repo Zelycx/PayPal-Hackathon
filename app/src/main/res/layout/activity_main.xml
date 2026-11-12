@@ -6,7 +6,7 @@
     android:id="@+id/main"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#101010"
+    android:background="#FFF8F4"
     tools:context=".MainActivity">
 
     <!-- MENU BUTTON: ALWAYS VISIBLE -->
@@ -17,11 +17,16 @@
         android:layout_marginStart="12dp"
         android:layout_marginTop="12dp"
         android:padding="0dp"
+        android:minWidth="0dp"
+        android:minHeight="0dp"
         android:text="☰"
-        android:textColor="#FFFFFF"
+        android:textColor="#6B4F4F"
         android:textSize="24sp"
-        android:backgroundTint="#292929"
-        android:elevation="20dp"
+        android:textStyle="bold"
+        android:textAllCaps="false"
+        android:backgroundTint="#FFE8E1"
+        android:elevation="12dp"
+        android:contentDescription="Open menu"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent"/>
 
@@ -30,8 +35,8 @@
         android:id="@+id/page_title"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Chatbot"
-        android:textColor="#FFFFFF"
+        android:text="AI Companion"
+        android:textColor="#6B4F4F"
         android:textSize="22sp"
         android:textStyle="bold"
         android:layout_marginTop="20dp"
@@ -43,7 +48,7 @@
     <LinearLayout
         android:id="@+id/balance_box"
         android:layout_width="0dp"
-        android:layout_height="48dp"
+        android:layout_height="52dp"
         android:layout_marginStart="60dp"
         android:layout_marginEnd="12dp"
         android:layout_marginTop="12dp"
@@ -51,8 +56,8 @@
         android:gravity="center_vertical"
         android:paddingStart="12dp"
         android:paddingEnd="6dp"
-        android:background="#252525"
-        android:elevation="10dp"
+        android:background="#FFF1E8"
+        android:elevation="12dp"
         android:visibility="gone"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
@@ -70,7 +75,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="PayPal Balance"
-                android:textColor="#FFFFFF"
+                android:textColor="#6B4F4F"
                 android:textSize="14sp"
                 android:textStyle="bold"/>
 
@@ -79,7 +84,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Unavailable"
-                android:textColor="#AAAAAA"
+                android:textColor="#B88978"
                 android:textSize="12sp"/>
 
         </LinearLayout>
@@ -91,10 +96,14 @@
             android:layout_height="40dp"
             android:layout_marginEnd="4dp"
             android:minWidth="0dp"
+            android:minHeight="0dp"
             android:paddingStart="8dp"
             android:paddingEnd="8dp"
-            android:text="Transaction History"
-            android:textSize="11sp"/>
+            android:text="◷ History"
+            android:textColor="#6B4F4F"
+            android:textSize="11sp"
+            android:textAllCaps="false"
+            android:backgroundTint="#FFE8E1"/>
 
         <!-- BUBBLE MODE -->
         <Button
@@ -102,12 +111,14 @@
             android:layout_width="wrap_content"
             android:layout_height="40dp"
             android:minWidth="0dp"
+            android:minHeight="0dp"
             android:paddingStart="8dp"
             android:paddingEnd="8dp"
-            android:text="Bubble Mode"
+            android:text="◉ Bubble"
             android:textColor="#FFFFFF"
             android:textSize="11sp"
-            android:backgroundTint="#FF9800"/>
+            android:textAllCaps="false"
+            android:backgroundTint="#E67E5A"/>
 
     </LinearLayout>
 
@@ -117,6 +128,8 @@
         android:layout_width="0dp"
         android:layout_height="0dp"
         android:layout_marginTop="8dp"
+        android:background="#FFF8F4"
+        android:clipToPadding="false"
         app:layout_constraintTop_toBottomOf="@id/page_title"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent"
