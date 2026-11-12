@@ -405,12 +405,16 @@ class GroqVisionProvider:
                 if structured_output_mode == "json_schema"
                 else {"type": "json_object"}
             )
-            system_prompt = SYSTEM_PROMPT
+            system_prompt = (
+                SYSTEM_PROMPT
+                + "\nReturn only one JSON object. Use null for unknown scalar values and [] for empty arrays. "
+                + "Represent all monetary values as plain non-negative decimal strings."
+            )
             if structured_output_mode == "json_object":
                 system_prompt += "\nJSON Schema to follow exactly:\n" + json.dumps(extraction_json_schema(), separators=(",", ":"))
-            response = await client.chat.completions.create(
-                model=model,
-                messages=[
+            request = {
+                "model": model,
+                "messages": [
                     {"role": "system", "content": system_prompt},
                     {
                         "role": "user",
@@ -420,10 +424,34 @@ class GroqVisionProvider:
                         ],
                     },
                 ],
-                response_format=response_format,
-                temperature=0.1,
-                max_completion_tokens=max_output_tokens,
-            )
+                "response_format": response_format,
+                "temperature": 0.1,
+                "max_completion_tokens": max_output_tokens,
+                "reasoning_effort": "none",
+            }
+            try:
+                response = await client.chat.completions.create(**request)
+            except Exception as exc:
+                if not _is_json_generation_error(exc, structured_output_mode):
+                    raise
+                _log_provider_failure(
+                    exc,
+                    model=model,
+                    mime_type=mime_type,
+                    image=image,
+                    structured_output_mode=structured_output_mode,
+                )
+                schema_path = _safe_schema_path(exc)
+                field = schema_path.rsplit(".", 1)[-1] if schema_path else None
+                logger.warning(
+                    "shopping_groq_json_schema_fallback schema_path=%s metadata=%s",
+                    schema_path or "unavailable",
+                    json.dumps({"field": field}, separators=(",", ":")) if field else "{}",
+                )
+                fallback_request = dict(request)
+                fallback_request["messages"] = [dict(message) for message in request["messages"]]
+                fallback_request["response_format"] = {"type": "json_object"}
+                response = await client.chat.completions.create(**fallback_request)
             if not response.choices:
                 raise ShoppingServiceError(
                     "empty_ai_response", "The vision provider returned no analysis.", 502
@@ -577,7 +605,6 @@ class GroqVisionProvider:
         finally:
             await client.close()
 
-
 SUPPORTED_MIME = {
     "image/jpeg": "JPEG",
     "image/png": "PNG",
@@ -684,6 +711,32 @@ def map_groq_error(exc: Exception) -> ShoppingServiceError:
         return ShoppingServiceError("provider_unavailable", "Vision service is temporarily unavailable.", 503)
     logger.warning("shopping_provider_error type=%s", type(exc).__name__)
     return ShoppingServiceError("provider_error", "Shopping analysis could not be completed.", 502)
+
+
+def _is_json_generation_error(exc: Exception, structured_output_mode: str) -> bool:
+    if structured_output_mode != "json_schema":
+        return False
+    body = getattr(exc, "body", None)
+    if not isinstance(body, dict):
+        return False
+    error = body.get("error", body)
+    if not isinstance(error, dict):
+        return False
+    message = error.get("message")
+    return isinstance(message, str) and "failed to generate json" in message.casefold()
+
+
+def _safe_schema_path(exc: Exception) -> str | None:
+    body = getattr(exc, "body", None)
+    if not isinstance(body, dict):
+        return None
+    error = body.get("error", body)
+    if not isinstance(error, dict):
+        return None
+    value = error.get("schema_path")
+    if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_.-]{1,160}", value):
+        return None
+    return value
 
 
 def _accepted(value, score: float | None, field: str, uncertain: list[str]):

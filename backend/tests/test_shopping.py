@@ -272,6 +272,10 @@ def test_groq_adapter_sends_cropped_image_and_selected_output_mode(monkeypatch, 
     assert captured["max_completion_tokens"] == 2500
     assert captured["model"] == DEFAULT_VISION_MODEL
     assert captured["closed"] is True
+    assert captured.get("reasoning_effort") == "none"
+    assert "Return only one JSON object" in captured["messages"][0]["content"]
+    assert "null for unknown scalar values and [] for empty arrays" in captured["messages"][0]["content"]
+    assert "plain non-negative decimal strings" in captured["messages"][0]["content"]
     image_url = captured["messages"][1]["content"][1]["image_url"]["url"]
     assert image_url.startswith("data:image/png;base64,")
     assert base64.b64decode(image_url.split(",", 1)[1]) == image_bytes()
@@ -352,6 +356,130 @@ def test_groq_adapter_logs_actual_api_status_without_request_payload(monkeypatch
     assert "Invalid response format." in caplog.text
     assert "base64" not in caplog.text
     assert "fake-provider-key" not in caplog.text
+
+
+def test_exact_groq_json_generation_error_falls_back_to_json_object_and_parses(monkeypatch, caplog):
+    import httpx
+    from groq import BadRequestError
+
+    request = httpx.Request("POST", "https://api.groq.com/openai/v1/chat/completions")
+    sensitive_generation = json.dumps({
+        "screen_type": "cart",
+        "products": [{"name": "Private Person", "unit_price": "1500.50", "email": "person@example.com"}],
+    })
+    provider_error = BadRequestError(
+        "Failed to generate JSON. Please adjust your prompt. See 'failed_generation' for more details.",
+        response=httpx.Response(400, request=request),
+        body={"error": {
+            "type": "invalid_request_error",
+            "message": "Failed to generate JSON. Please adjust your prompt. See 'failed_generation' for more details.",
+            "failed_generation": sensitive_generation,
+            "schema_path": "products.items.properties.unit_price",
+            "schema_code": "invalid_type",
+        }},
+    )
+    captured = {"requests": []}
+
+    class FakeCompletions:
+        async def create(self, **kwargs):
+            captured["requests"].append(kwargs)
+            if len(captured["requests"]) == 1:
+                raise provider_error
+            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps(extraction())))])
+
+    class FakeGroq:
+        def __init__(self, **kwargs):
+            captured["client_config"] = kwargs
+            self.chat = SimpleNamespace(completions=FakeCompletions())
+
+        async def close(self):
+            captured["closed"] = True
+
+    monkeypatch.setattr("groq.AsyncGroq", FakeGroq)
+    run_image_sanitization_inline(monkeypatch)
+    service = ShoppingService(settings=ShoppingSettings(
+        api_key="fake-provider-key",
+        vision_model=DEFAULT_VISION_MODEL,
+        timeout_seconds=10,
+        max_output_tokens=2500,
+        structured_output_mode="json_schema",
+    ))
+    with caplog.at_level(logging.WARNING):
+        response = asyncio.run(service.analyze(image_bytes(), "image/png"))
+
+    first_request, fallback_request = captured["requests"]
+    assert first_request["response_format"]["type"] == "json_schema"
+    assert first_request["response_format"]["json_schema"]["strict"] is True
+    assert fallback_request["response_format"] == {"type": "json_object"}
+    assert fallback_request["reasoning_effort"] == "none"
+    assert captured["closed"] is True
+    assert response.success is True
+    assert response.items[0].name == "Mouse"
+    assert "schema_path=products.items.properties.unit_price" in caplog.text
+    assert '"field":"unit_price"' in caplog.text
+    assert "Private Person" not in caplog.text
+    assert "person@example.com" not in caplog.text
+    assert "1500.50" not in caplog.text
+    assert "fake-provider-key" not in caplog.text
+
+
+def test_failed_generation_and_malformed_fallback_never_reach_api_error_message(monkeypatch, caplog):
+    import httpx
+    from groq import BadRequestError
+
+    request = httpx.Request("POST", "https://api.groq.com/openai/v1/chat/completions")
+    provider_error = BadRequestError(
+        "Failed to generate JSON. Please adjust your prompt. See 'failed_generation' for more details.",
+        response=httpx.Response(400, request=request),
+        body={"error": {
+            "type": "invalid_request_error",
+            "message": "Failed to generate JSON. Please adjust your prompt. See 'failed_generation' for more details.",
+            "failed_generation": "Private Person person@example.com ₱1,500.50",
+        }},
+    )
+
+    class FakeCompletions:
+        async def create(self, **kwargs):
+            if kwargs["response_format"]["type"] == "json_schema":
+                raise provider_error
+            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="not JSON: person@example.com"))])
+
+    class FakeGroq:
+        def __init__(self, **kwargs):
+            self.chat = SimpleNamespace(completions=FakeCompletions())
+
+        async def close(self):
+            pass
+
+    monkeypatch.setattr("groq.AsyncGroq", FakeGroq)
+    with caplog.at_level(logging.WARNING):
+        raw = asyncio.run(GroqVisionProvider("fake-provider-key").analyze_image(
+            image_bytes(), "image/png", DEFAULT_VISION_MODEL, 10, 2500, "json_schema"
+        ))
+    with pytest.raises(ShoppingServiceError) as error:
+        parse_shopping_response(raw)
+    assert error.value.code == "invalid_ai_json"
+    assert "person@example.com" not in error.value.message
+    assert "person@example.com" not in caplog.text
+    assert "Private Person" not in caplog.text
+    assert "1,500.50" not in caplog.text
+
+
+def test_provider_internals_are_not_returned_from_shopping_api():
+    from app.api.shopping import _http_error
+
+    mapped = _http_error(ShoppingServiceError(
+        "provider_request_rejected",
+        "Vision service could not process this image or model request.",
+        502,
+    ))
+    response_body = json.dumps(mapped.detail)
+    assert mapped.status_code == 502
+    assert mapped.detail["code"] == "provider_request_rejected"
+    assert "failed_generation" not in response_body
+    assert "Private Person" not in response_body
+    assert "person@example.com" not in response_body
+    assert "1,500.50" not in response_body
 
 
 def test_provider_diagnostics_redact_credentials_and_image_data(caplog):
@@ -699,6 +827,8 @@ def parsed_monetary_values(value):
         ("₱1,234.50", "1234.50", None, "₱"),
         ("$1,234.50", "1234.50", None, "$"),
         ("USD 1,234.50", "1234.50", "USD", None),
+        ("PHP 2,000", "2000", "PHP", None),
+        ("0.123456789012345678", "0.123456789012345678", None, None),
     ],
 )
 def test_all_six_monetary_fields_normalize_valid_values(value, expected, expected_currency, expected_symbol):
@@ -716,6 +846,20 @@ def test_all_six_monetary_fields_preserve_null_values():
     assert values == [None] * 6
     assert parsed.products[0].currency is None
     assert parsed.charges[0].currency is None
+
+
+def test_full_shopping_service_normalizes_groq_monetary_response(monkeypatch):
+    run_image_sanitization_inline(monkeypatch)
+    provider = FakeProvider(json.dumps(monetary_extraction("₱1,500.50")))
+    response = asyncio.run(service_for(provider).analyze(image_bytes(), "image/png"))
+    assert response.success is True
+    assert response.items[0].unit_price == "1500.50"
+    assert response.items[0].original_unit_price == "1500.50"
+    assert response.items[0].displayed_line_total == "1500.50"
+    assert response.items[0].currency is None
+    assert response.items[0].currency_symbol == "₱"
+    assert response.charges[0].amount == "1500.50"
+    assert response.charges[0].currency is None
 
 
 @pytest.mark.parametrize("value", [-12, -12.5, "-12.50", "", "1,23.45", "12.34.56", "$", "(12.00)"])
