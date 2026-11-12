@@ -1,3 +1,4 @@
+
 package com.example.paypalhackathon
 
 import android.content.BroadcastReceiver
@@ -6,14 +7,19 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.res.ColorStateList
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
+import android.view.Gravity
 import android.view.View
 import android.widget.Button
+import android.widget.EditText
+import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.ProgressBar
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
@@ -29,6 +35,13 @@ import com.example.paypalhackaton.ChatHeadService
 class MainActivity : AppCompatActivity() {
 
     private lateinit var bubbleButton: Button
+
+    // Chat components
+    private lateinit var chatInput: EditText
+    private lateinit var sendButton: ImageButton
+    private lateinit var chatMessages: LinearLayout
+    private lateinit var chatScroll: ScrollView
+
     private lateinit var menuButton: Button
     private lateinit var menuPanel: LinearLayout
     private lateinit var paypalBalance: TextView
@@ -36,43 +49,64 @@ class MainActivity : AppCompatActivity() {
     private lateinit var apiStatus: TextView
     private lateinit var apiResult: TextView
     private lateinit var apiProgress: ProgressBar
-    private val apiClient by lazy { BackendApiClient.get(applicationContext) }
+
+    private val apiClient by lazy {
+        BackendApiClient.get(applicationContext)
+    }
+
     private var requestInProgress = false
 
-    private val screenshotPicker = registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
-        if (uri == null) {
-            setStatus("No screenshot selected.")
-        } else {
-            analyzeScreenshot(uri)
+    private val screenshotPicker =
+        registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+            if (uri == null) {
+                setStatus("No screenshot selected.")
+            } else {
+                analyzeScreenshot(uri)
+            }
         }
-    }
 
-    // Register before the activity is started so Android can restore the
-    // result callback correctly if the activity is recreated during consent.
-    private val screenCaptureConsentLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        if (result.resultCode == RESULT_OK && result.data != null) {
-            startBubbleMode(result.resultCode, result.data)
-        } else {
-            startBubbleMode()
+    // Register before the activity is started so Android can restore
+    // the result callback correctly if the activity is recreated.
+    private val screenCaptureConsentLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == RESULT_OK && result.data != null) {
+                startBubbleMode(result.resultCode, result.data)
+            } else {
+                startBubbleMode()
+            }
         }
-    }
 
     private val serviceStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action == ChatHeadService.ACTION_STATE_CHANGED) updateButton()
+            if (intent?.action == ChatHeadService.ACTION_STATE_CHANGED) {
+                updateButton()
+            }
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
         enableEdgeToEdge()
         setContentView(R.layout.activity_main)
 
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main)) { view, insets ->
-            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            view.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
+
+            val systemBars = insets.getInsets(
+                WindowInsetsCompat.Type.systemBars()
+            )
+
+            val ime = insets.getInsets(
+                WindowInsetsCompat.Type.ime()
+            )
+
+            view.setPadding(
+                systemBars.left,
+                systemBars.top,
+                systemBars.right,
+                maxOf(systemBars.bottom, ime.bottom)
+            )
+
             insets
         }
 
@@ -84,25 +118,64 @@ class MainActivity : AppCompatActivity() {
         apiStatus = findViewById(R.id.api_status)
         apiResult = findViewById(R.id.api_result)
         apiProgress = findViewById(R.id.api_progress)
+
+        // Chat components
+        chatInput = findViewById(R.id.chat_input)
+        sendButton = findViewById(R.id.send_button)
+        chatMessages = findViewById(R.id.chat_messages)
+        chatScroll = findViewById(R.id.chat_scroll)
+
+        // Welcome message
+        if (savedInstanceState == null) {
+            addChatMessage(
+                "Hello! Welcome to your shopping assistant. How can I help you today?",
+                false
+            )
+        }
+
+        // Send button functionality
+        sendButton.setOnClickListener {
+            sendChatMessage()
+        }
+
         updateButton()
-        bubbleButton.setOnClickListener { toggleBubbleMode() }
+
+        bubbleButton.setOnClickListener {
+            toggleBubbleMode()
+        }
 
         menuButton.setOnClickListener {
             val opening = menuPanel.visibility != View.VISIBLE
-            menuPanel.visibility = if (opening) View.VISIBLE else View.GONE
-            if (opening) loadSandboxWallet()
+
+            menuPanel.visibility =
+                if (opening) View.VISIBLE else View.GONE
+
+            if (opening) {
+                loadSandboxWallet()
+            }
         }
+
         transactionHistoryButton.setOnClickListener {
-            startActivity(Intent(this, TransactionHistory::class.java))
+            startActivity(
+                Intent(this, TransactionHistory::class.java)
+            )
         }
 
         if (intent?.action == null) {
             apiClient.ensureGuestSession { result ->
-                if (isFinishing || isDestroyed || requestInProgress) return@ensureGuestSession
+                if (isFinishing || isDestroyed || requestInProgress) {
+                    return@ensureGuestSession
+                }
+
                 result.onSuccess {
-                    setStatus("Guest session ready. Choose a screenshot with the selector or open PayPal Sandbox.")
+                    setStatus(
+                        "Guest session ready. Choose a screenshot with the selector or open PayPal Sandbox."
+                    )
                 }.onFailure {
-                    setStatus("Backend unavailable: " + (it.message ?: "could not start a guest session."))
+                    setStatus(
+                        "Backend unavailable: " +
+                                (it.message ?: "could not start a guest session.")
+                    )
                 }
             }
         }
@@ -116,12 +189,15 @@ class MainActivity : AppCompatActivity() {
         handleAction(intent.action)
     }
 
-    /** Starts Bubble Mode; capture starts only when the consent data is present. */
-    private fun startBubbleMode(resultCode: Int? = null, resultData: Intent? = null) {
+    /** Starts Bubble Mode; capture starts only when consent data is present. */
+    private fun startBubbleMode(
+        resultCode: Int? = null,
+        resultData: Intent? = null
+    ) {
         try {
             startService(
                 Intent(this, ChatHeadService::class.java)
-                    .setAction(ChatHeadService.ACTION_ACTIVATE),
+                    .setAction(ChatHeadService.ACTION_ACTIVATE)
             )
         } catch (e: Exception) {
             Toast.makeText(
@@ -135,10 +211,16 @@ class MainActivity : AppCompatActivity() {
         if (resultCode != null && resultData != null) {
             try {
                 ScreenReader.start(this, resultCode, resultData)
-                Toast.makeText(this, "Bubble Mode activated", Toast.LENGTH_SHORT).show()
+
+                Toast.makeText(
+                    this,
+                    "Bubble Mode activated",
+                    Toast.LENGTH_SHORT
+                ).show()
+
             } catch (_: Exception) {
-                // Bubble Mode remains useful even if the capture service cannot start.
                 ScreenReader.stop(this)
+
                 Toast.makeText(
                     this,
                     "Bubble Mode activated. Screen Read is unavailable.",
@@ -152,16 +234,18 @@ class MainActivity : AppCompatActivity() {
                 Toast.LENGTH_LONG
             ).show()
         }
+
         finish()
     }
 
     override fun onStart() {
         super.onStart()
+
         ContextCompat.registerReceiver(
             this,
             serviceStateReceiver,
             IntentFilter(ChatHeadService.ACTION_STATE_CHANGED),
-            ContextCompat.RECEIVER_NOT_EXPORTED,
+            ContextCompat.RECEIVER_NOT_EXPORTED
         )
 
         updateButton()
@@ -174,7 +258,10 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (::bubbleButton.isInitialized) updateButton()
+
+        if (::bubbleButton.isInitialized) {
+            updateButton()
+        }
     }
 
     private fun handleAction(action: String?) {
@@ -191,28 +278,47 @@ class MainActivity : AppCompatActivity() {
         if (ChatHeadService.isRunning) {
             ScreenReader.stop(this)
             stopService(Intent(this, ChatHeadService::class.java))
-            Toast.makeText(this, "Bubble Mode deactivated", Toast.LENGTH_SHORT).show()
+
+            Toast.makeText(
+                this,
+                "Bubble Mode deactivated",
+                Toast.LENGTH_SHORT
+            ).show()
+
             return
         }
 
         if (!Settings.canDrawOverlays(this)) {
             val settingsIntent = Intent(
                 Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                Uri.parse("package:$packageName"),
+                Uri.parse("package:$packageName")
             )
+
             startActivity(settingsIntent)
-            Toast.makeText(this, "Please allow Display over other apps.", Toast.LENGTH_LONG).show()
+
+            Toast.makeText(
+                this,
+                "Please allow Display over other apps.",
+                Toast.LENGTH_LONG
+            ).show()
+
             return
         }
 
         try {
-            val projectionManager = getSystemService(MEDIA_PROJECTION_SERVICE)
-                as MediaProjectionManager
+            val projectionManager =
+                getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+
             screenCaptureConsentLauncher.launch(
-                projectionManager.createScreenCaptureIntent(),
+                projectionManager.createScreenCaptureIntent()
             )
+
         } catch (error: Exception) {
-            Toast.makeText(this, "Service error: ${error.message}", Toast.LENGTH_LONG).show()
+            Toast.makeText(
+                this,
+                "Service error: ${error.message}",
+                Toast.LENGTH_LONG
+            ).show()
         }
     }
 
@@ -223,14 +329,28 @@ class MainActivity : AppCompatActivity() {
 
     private fun analyzeScreenshot(uri: Uri) {
         if (requestInProgress) return
+
         setBusy(true, "Analyzing screenshot…")
         apiResult.text = ""
+
         apiClient.analyzeShoppingImage(uri) { result ->
-            if (isFinishing || isDestroyed) return@analyzeShoppingImage
+            if (isFinishing || isDestroyed) {
+                return@analyzeShoppingImage
+            }
+
             setBusy(false)
+
             result.onSuccess { response ->
                 renderShopping(response)
-                setStatus(if (response.requiresReview) "Analysis complete · review the warnings and uncertain fields." else "Analysis complete.")
+
+                setStatus(
+                    if (response.requiresReview) {
+                        "Analysis complete · review the warnings and uncertain fields."
+                    } else {
+                        "Analysis complete."
+                    }
+                )
+
             }.onFailure { error ->
                 apiResult.text = ""
                 setStatus(error.message ?: "Shopping analysis failed.")
@@ -240,13 +360,25 @@ class MainActivity : AppCompatActivity() {
 
     private fun showCachedShoppingResults() {
         val response = apiClient.cachedShoppingResponse()
+
         if (response == null) {
-            setStatus("No shopping results yet. Use the selector button to choose a saved screenshot.")
+            setStatus(
+                "No shopping results yet. Use the selector button to choose a saved screenshot."
+            )
+
             apiResult.text = ""
             return
         }
+
         renderShopping(response)
-        setStatus(if (response.requiresReview) "Shopping results · review requested." else "Shopping results")
+
+        setStatus(
+            if (response.requiresReview) {
+                "Shopping results · review requested."
+            } else {
+                "Shopping results"
+            }
+        )
     }
 
     private fun renderShopping(response: ShoppingResponse) {
@@ -255,20 +387,37 @@ class MainActivity : AppCompatActivity() {
 
     private fun loadSandboxWallet() {
         if (requestInProgress) return
-        setBusy(true, "Loading PayPal Sandbox connection, balances, and transactions…")
+
+        setBusy(
+            true,
+            "Loading PayPal Sandbox connection, balances, and transactions…"
+        )
+
         apiResult.text = ""
+
         apiClient.loadPayPalSandbox { result ->
-            if (isFinishing || isDestroyed) return@loadPayPalSandbox
+            if (isFinishing || isDestroyed) {
+                return@loadPayPalSandbox
+            }
+
             setBusy(false)
+
             result.onSuccess { wallet ->
                 apiResult.text = wallet.toDisplayText()
                 paypalBalance.text = wallet.balanceSummary()
                 setStatus("Sandbox data loaded.")
+
             }.onFailure { error ->
-                val detail = error.message ?: "PayPal Sandbox is unavailable."
+                val detail =
+                    error.message ?: "PayPal Sandbox is unavailable."
+
                 paypalBalance.text = "Unavailable"
-                apiResult.text = "PayPal Sandbox data could not be loaded.\n\n" + detail +
-                    "\n\nCheck the backend's Sandbox credentials and reporting permissions."
+
+                apiResult.text =
+                    "PayPal Sandbox data could not be loaded.\n\n" +
+                            detail +
+                            "\n\nCheck the backend's Sandbox credentials and reporting permissions."
+
                 setStatus("PayPal Sandbox unavailable.")
             }
         }
@@ -276,8 +425,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun setBusy(busy: Boolean, message: String? = null) {
         requestInProgress = busy
-        apiProgress.visibility = if (busy) View.VISIBLE else View.GONE
+
+        apiProgress.visibility =
+            if (busy) View.VISIBLE else View.GONE
+
         bubbleButton.isEnabled = !busy
+
         message?.let(::setStatus)
     }
 
@@ -287,18 +440,170 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateButton() {
         if (!::bubbleButton.isInitialized) return
+
         val active = ChatHeadService.isRunning
+
         bubbleButton.backgroundTintList = ColorStateList.valueOf(
-            Color.parseColor(if (active) "#777777" else "#FF9800"),
+            Color.parseColor(
+                if (active) "#777777" else "#FF9800"
+            )
         )
+
         bubbleButton.setTextColor(Color.WHITE)
-        bubbleButton.text = if (active) "Bubble Mode: ON" else "Bubble Mode: OFF"
+
+        bubbleButton.text =
+            if (active) "Bubble Mode: ON" else "Bubble Mode: OFF"
+    }
+
+    // ------------------------------------------------
+    // CHAT FUNCTIONS
+    // ------------------------------------------------
+
+    private fun sendChatMessage() {
+        val message = chatInput.text.toString().trim()
+
+        if (message.isEmpty()) return
+
+        // Display the user's message
+        addChatMessage(message, true)
+
+        // Clear the input
+        chatInput.text.clear()
+
+        // Get chatbot response
+        val reply = getBotReply(message)
+
+        addChatMessage(reply, false)
+    }
+
+    private fun getBotReply(message: String): String {
+        val lowerMessage = message.lowercase()
+
+        return when {
+            lowerMessage.contains("hello") ||
+                    lowerMessage.contains("hi") -> {
+                "Hello! How can I help you today?"
+            }
+
+            lowerMessage.contains("how are you") -> {
+                "I'm doing great! Thanks for asking. What can I help you with?"
+            }
+
+            lowerMessage.contains("phone") -> {
+                "Are you looking for a new phone? Tell me your budget and preferences!"
+            }
+
+            lowerMessage.contains("laptop") -> {
+                "I can help you find a laptop. What's your budget?"
+            }
+
+            lowerMessage.contains("price") ||
+                    lowerMessage.contains("cost") -> {
+                "Which product are you interested in? I can help you with its price."
+            }
+
+            lowerMessage.contains("budget") -> {
+                "What's your budget? I'll try to help you find something suitable."
+            }
+
+            lowerMessage.contains("recommend") -> {
+                "Sure! Tell me what kind of product you're looking for and your budget."
+            }
+
+            lowerMessage.contains("help") -> {
+                "Of course! I'm here to help with your shopping needs."
+            }
+
+            lowerMessage.contains("thank") -> {
+                "You're welcome! Let me know if you need anything else."
+            }
+
+            lowerMessage.contains("bye") -> {
+                "Goodbye! Have a great day!"
+            }
+
+            else -> {
+                "I'm here to help with your shopping needs. Could you tell me more?"
+            }
+        }
+    }
+
+    private fun addChatMessage(message: String, isUser: Boolean) {
+
+        val textView = TextView(this).apply {
+            text = message
+            textSize = 15f
+
+            setTextColor(
+                Color.parseColor(
+                    if (isUser) "#405FAD" else "#6B4F4F"
+                )
+            )
+
+            setPadding(
+                16.dp(),
+                10.dp(),
+                16.dp(),
+                10.dp()
+            )
+
+            background = GradientDrawable().apply {
+                cornerRadius = 20.dp().toFloat()
+
+                setColor(
+                    Color.parseColor(
+                        if (isUser) "#E6F0FF" else "#FFF1E8"
+                    )
+                )
+            }
+        }
+
+        val messageContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+
+            gravity =
+                if (isUser) Gravity.END else Gravity.START
+
+            setPadding(
+                8.dp(),
+                4.dp(),
+                8.dp(),
+                4.dp()
+            )
+
+            addView(
+                textView,
+                LinearLayout.LayoutParams(
+                    (resources.displayMetrics.widthPixels * 0.75).toInt(),
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            )
+        }
+
+        chatMessages.addView(messageContainer)
+
+        chatScroll.post {
+            chatScroll.fullScroll(View.FOCUS_DOWN)
+        }
+    }
+
+    private fun Int.dp(): Int {
+        return (
+                this * resources.displayMetrics.density
+                ).toInt()
     }
 
     companion object {
-        const val ACTION_SELECT_SCREENSHOT = "com.example.paypalhackathon.SELECT_SCREENSHOT"
-        const val ACTION_OPEN_SHOPPING = "com.example.paypalhackathon.OPEN_SHOPPING"
-        const val ACTION_OPEN_WALLET = "com.example.paypalhackathon.OPEN_WALLET"
-        const val ACTION_TOGGLE_BUBBLE = "com.example.paypalhackathon.TOGGLE_BUBBLE"
+        const val ACTION_SELECT_SCREENSHOT =
+            "com.example.paypalhackathon.SELECT_SCREENSHOT"
+
+        const val ACTION_OPEN_SHOPPING =
+            "com.example.paypalhackathon.OPEN_SHOPPING"
+
+        const val ACTION_OPEN_WALLET =
+            "com.example.paypalhackathon.OPEN_WALLET"
+
+        const val ACTION_TOGGLE_BUBBLE =
+            "com.example.paypalhackathon.TOGGLE_BUBBLE"
     }
 }
