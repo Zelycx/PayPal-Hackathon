@@ -735,6 +735,14 @@ def test_missing_key_or_model_is_reported_without_provider_call():
     assert not provider.calls
 
 
+def test_output_token_configuration_is_capped_below_groq_otpm_limit(monkeypatch):
+    monkeypatch.setenv("GROQ_MAX_OUTPUT_TOKENS", "2500")
+    assert ShoppingSettings.from_environment().max_output_tokens == 900
+
+    monkeypatch.setenv("GROQ_MAX_OUTPUT_TOKENS", "700")
+    assert ShoppingSettings.from_environment().max_output_tokens == 700
+
+
 def test_provider_exception_text_and_session_token_are_not_logged(caplog, monkeypatch):
     run_image_sanitization_inline(monkeypatch)
     secret_like = "credential-must-not-appear"
