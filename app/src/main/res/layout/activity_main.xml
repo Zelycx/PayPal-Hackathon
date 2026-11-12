@@ -9,6 +9,7 @@
     android:background="#101010"
     tools:context=".MainActivity">
 
+    <!-- TOP MENU BUTTON -->
     <Button
         android:id="@+id/menu_button"
         android:layout_width="48dp"
@@ -18,6 +19,8 @@
         android:backgroundTint="#292929"
         android:contentDescription="Open PayPal Sandbox menu"
         android:elevation="20dp"
+        android:minWidth="48dp"
+        android:minHeight="48dp"
         android:padding="0dp"
         android:text="☰"
         android:textColor="#FFFFFF"
@@ -25,6 +28,7 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
 
+    <!-- PAGE TITLE -->
     <TextView
         android:id="@+id/page_title"
         android:layout_width="wrap_content"
@@ -38,20 +42,23 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
 
+    <!-- BUBBLE MODE BUTTON -->
     <Button
         android:id="@+id/bubble_button"
         android:layout_width="wrap_content"
-        android:layout_height="40dp"
+        android:layout_height="48dp"
         android:layout_marginTop="12dp"
         android:layout_marginEnd="12dp"
         android:backgroundTint="#FF9800"
         android:minWidth="0dp"
+        android:minHeight="48dp"
         android:text="@string/bubble_mode"
         android:textColor="#FFFFFF"
         android:textSize="12sp"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
 
+    <!-- PAYPAL SANDBOX MENU -->
     <LinearLayout
         android:id="@+id/balance_box"
         android:layout_width="0dp"
@@ -94,21 +101,25 @@
                 android:text="Not loaded"
                 android:textColor="#CCCCCC"
                 android:textSize="12sp" />
+
         </LinearLayout>
 
         <Button
             android:id="@+id/page_switch_button"
             android:layout_width="wrap_content"
-            android:layout_height="40dp"
+            android:layout_height="48dp"
             android:layout_marginStart="8dp"
             android:minWidth="0dp"
+            android:minHeight="48dp"
             android:paddingStart="8dp"
             android:paddingEnd="8dp"
             android:text="Transactions"
             android:textSize="11sp" />
+
     </LinearLayout>
 
-    <FrameLayout
+    <!-- MAIN CHAT AREA -->
+    <LinearLayout
         android:id="@+id/chat_area"
         android:layout_width="0dp"
         android:layout_height="0dp"
@@ -116,83 +127,134 @@
         android:layout_marginTop="12dp"
         android:layout_marginEnd="16dp"
         android:layout_marginBottom="8dp"
-        app:layout_constraintBottom_toTopOf="@id/avatar_row"
+        android:orientation="vertical"
+        app:layout_constraintBottom_toTopOf="@id/chat_input_container"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/balance_box">
 
+        <!-- STATUS ROW -->
         <LinearLayout
-            android:id="@+id/api_panel"
             android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:orientation="vertical">
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <ProgressBar
+                android:id="@+id/api_progress"
+                style="?android:attr/progressBarStyleSmall"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/api_status"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:padding="8dp"
+                android:text="Choose a shopping screenshot or open PayPal Sandbox."
+                android:textColor="#E67E5A"
+                android:textSize="14sp"
+                android:visibility="gone" />
+
+
+        </LinearLayout>
+
+        <!-- API RESULTS / CHAT CONTENT -->
+        <ScrollView
+            android:id="@+id/chat_scroll"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:fillViewport="true"
+            android:clipToPadding="false"
+            android:paddingBottom="12dp">
 
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
+                android:orientation="vertical"
+                android:padding="8dp">
 
-                <ProgressBar
-                    android:id="@+id/api_progress"
-                    style="?android:attr/progressBarStyleSmall"
-                    android:layout_width="32dp"
-                    android:layout_height="32dp"
-                    android:visibility="gone" />
-
-                <TextView
-                    android:id="@+id/api_status"
-                    android:layout_width="0dp"
+                <!-- CHAT MESSAGES -->
+                <LinearLayout
+                    android:id="@+id/chat_messages"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:padding="8dp"
-                    android:text="Choose a shopping screenshot or open PayPal Sandbox."
-                    android:textColor="#EEEEEE"
-                    android:textSize="14sp" />
-            </LinearLayout>
+                    android:orientation="vertical" />
 
-            <ScrollView
-                android:layout_width="match_parent"
-                android:layout_height="0dp"
-                android:layout_weight="1"
-                android:fillViewport="true">
-
+                <!-- EXISTING PAYPAL / API RESULTS -->
                 <TextView
                     android:id="@+id/api_result"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:padding="12dp"
-                    android:textColor="#EEEEEE"
+                    android:textColor="#FFF1E8"
                     android:textIsSelectable="true"
                     android:textSize="14sp" />
-            </ScrollView>
-        </LinearLayout>
-    </FrameLayout>
 
+            </LinearLayout>
+
+        </ScrollView>
+
+    </LinearLayout>
+
+    <!-- REAL CHAT INPUT -->
     <LinearLayout
-        android:id="@+id/avatar_row"
-        android:layout_width="wrap_content"
+        android:id="@+id/chat_input_container"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:gravity="center"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginBottom="16dp"
+        android:gravity="bottom"
         android:orientation="horizontal"
         app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toEndOf="parent">
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent">
 
-        <ImageView
-            android:id="@+id/avatar_placeholder"
-            android:layout_width="132dp"
-            android:layout_height="180dp"
-            android:contentDescription="@string/avatar_placeholder"
-            android:scaleType="fitCenter"
-            android:src="@drawable/avatar_placeholder" />
+        <!-- ACTUAL TEXT INPUT -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            app:cardBackgroundColor="#FFF1E8"
+            app:cardCornerRadius="18dp"
+            app:cardElevation="0dp"
+            app:strokeColor="#E67E5A"
+            app:strokeWidth="2dp">
 
-        <ImageView
-            android:id="@+id/speech_bubble_placeholder"
-            android:layout_width="279dp"
-            android:layout_height="180dp"
-            android:contentDescription="@string/speech_bubble_placeholder"
+            <EditText
+                android:id="@+id/chat_input"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@android:color/transparent"
+                android:gravity="top|start"
+                android:hint="Type your message..."
+                android:inputType="textMultiLine|textCapSentences"
+                android:maxLines="5"
+                android:minHeight="48dp"
+                android:padding="14dp"
+                android:scrollbars="vertical"
+                android:textColor="#6B4F4F"
+                android:textColorHint="#B99A8D"
+                android:textSize="14sp" />
+
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- SEND BUTTON -->
+        <ImageButton
+            android:id="@+id/send_button"
+            android:layout_width="56dp"
+            android:layout_height="48dp"
+            android:layout_marginStart="8dp"
+            android:background="@android:color/transparent"
+            android:contentDescription="Send message"
+            android:padding="4dp"
             android:scaleType="fitCenter"
-            android:src="@drawable/speech_bubble_placeholder" />
+            android:src="@drawable/send" />
+
     </LinearLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>
